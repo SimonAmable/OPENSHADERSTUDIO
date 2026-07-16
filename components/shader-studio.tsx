@@ -1,13 +1,13 @@
 "use client";
 
-import { ChangeEvent, ComponentType, CSSProperties, DragEvent, PointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ComponentType, CSSProperties, DragEvent, PointerEvent, ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { create } from "zustand";
 import { ColorPanels, Dithering, DotGrid, DotOrbit, GodRays, GrainGradient, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, PulsingBorder, SimplexNoise, SmokeRing, Spiral, StaticMeshGradient, StaticRadialGradient, Swirl, Voronoi, Warp, Waves } from "@paper-design/shaders-react";
 import {
   BookOpen, Check, ChevronDown, CircleHelp, Code2, Copy, Download, Droplets, Eye,
   Gauge, ImageDown, Layers3, MousePointer2, Palette, Pause, Play, Redo2, RefreshCcw,
-  Minus, Save, Search, Settings2, Sparkles, Undo2, Video, WandSparkles, X,
+  Minus, Pipette, Plus, Save, Search, Settings2, Sparkles, Trash2, Undo2, Video, WandSparkles, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -111,6 +111,7 @@ type Recipe = {
   glsl: string;
 };
 
+type SavedPalette = { id: string; name: string; colors: string[] };
 type StudioStore = { saved: Recipe[]; save: (recipe: Recipe) => void; remove: (id: string) => void };
 const useStudioStore = create<StudioStore>((set) => ({
   saved: [],
@@ -123,7 +124,7 @@ uniform vec2 u_resolution;
 uniform float u_time;
 uniform vec2 u_pointer;
 uniform vec2 u_velocity;
-uniform vec3 u_colors[5];
+uniform vec3 u_colors[8];
 uniform float u_style, u_intensity, u_zoom, u_warp, u_contrast, u_speed, u_grain, u_drift, u_animate, u_reverse, u_rotate, u_seed, u_smooth_blend;
 uniform vec2 u_offset;
 uniform float u_cursor_on, u_cursor_effect, u_cursor_strength, u_cursor_radius;
@@ -135,7 +136,7 @@ float fbm(vec2 p) { float v=0., a=.55; for(int i=0;i<5;i++){v+=a*noise(p);p=p*2.
 float auroraHash(vec2 p){p=fract(p*vec2(234.34,435.345));p+=dot(p,p+34.23);return fract(p.x*p.y);}
 float auroraNoise(vec2 p){vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);return mix(mix(auroraHash(i),auroraHash(i+vec2(1.,0.)),u.x),mix(auroraHash(i+vec2(0.,1.)),auroraHash(i+vec2(1.,1.)),u.x),u.y);}
 float auroraFbm(vec2 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*auroraNoise(p);p=p*2.03+vec2(17.,9.2);a*=.5;}return v;}
-vec3 gradient(float t){ t=clamp(t,0.,.999); float x=t*4.; int i=int(floor(x)); float f=fract(x); if(u_smooth_blend>.5)f=f*f*(3.-2.*f); if(i==0)return mix(u_colors[0],u_colors[1],f); if(i==1)return mix(u_colors[1],u_colors[2],f); if(i==2)return mix(u_colors[2],u_colors[3],f); return mix(u_colors[3],u_colors[4],f); }
+vec3 gradient(float t){ t=clamp(t,0.,.999); float x=t*7.; int i=int(floor(x)); float f=fract(x); if(u_smooth_blend>.5)f=f*f*(3.-2.*f); if(i==0)return mix(u_colors[0],u_colors[1],f); if(i==1)return mix(u_colors[1],u_colors[2],f); if(i==2)return mix(u_colors[2],u_colors[3],f); if(i==3)return mix(u_colors[3],u_colors[4],f); if(i==4)return mix(u_colors[4],u_colors[5],f); if(i==5)return mix(u_colors[5],u_colors[6],f); return mix(u_colors[6],u_colors[7],f); }
 void main(){
   vec2 uv=(gl_FragCoord.xy-.5*u_resolution.xy)/u_resolution.y;
   vec2 p=uv*u_zoom + u_offset;
@@ -310,6 +311,7 @@ const appPresets: Recipe[] = [{
 
 const SAVED_RECIPES_KEY = "shader-studio-saved-recipes";
 const RESUME_RECIPE_KEY = "shader-studio-resume-recipe";
+const SAVED_PALETTES_KEY = "shader-studio-saved-palettes";
 
 const presetGroups = [
   { title: "Flow", items: [["Silk", 0], ["Smoke", 1], ["Flow field", 3], ["Waves", 24]] },
@@ -530,7 +532,7 @@ function paperProps(recipe: Recipe, paused: boolean, cursor: PaperCursorOffset =
     case 32:
       return { ...shared, ...paperBackAndColors(palette), noiseScale: 0.5 + recipe.warp * 2, thickness: 0.15 + recipe.intensity * 0.35, radius: 0.3 + recipe.contrast * 0.4 };
     case 33:
-      return { ...shared, colorBack: palette[0], colorBloom: palette.at(-1) ?? palette[0], colors: palette.slice(1).slice(0, 5), intensity: recipe.intensity, bloom: recipe.contrast, density: 0.3 + recipe.warp * 0.5, spotty: recipe.grain * 2 };
+      return { ...shared, colorBack: palette[0], colorBloom: palette.at(-1) ?? palette[0], colors: palette.slice(1).slice(0, 7), intensity: recipe.intensity, bloom: recipe.contrast, density: 0.3 + recipe.warp * 0.5, spotty: recipe.grain * 2 };
     default:
       return { ...shared, ...paperBackAndColors(palette) };
   }
@@ -545,6 +547,65 @@ function queryShaderCanvas(style: number) {
     ? ".canvas-area .paper-shader-canvas canvas, .export-preview .paper-shader-canvas canvas, .mockup-export-preview .paper-shader-canvas canvas, .camera-pad .paper-shader-canvas canvas"
     : ".canvas-area .shader-canvas, .export-preview .shader-canvas, .mockup-export-preview .shader-canvas, .camera-pad .shader-canvas";
   return document.querySelector<HTMLCanvasElement>(selector);
+}
+
+type PaperShaderMountHandle = {
+  setFrame: (frame: number) => void;
+  setSpeed: (speed: number) => void;
+  canvasElement: HTMLCanvasElement;
+};
+
+type PaperShaderHost = HTMLElement & { paperShaderMount?: PaperShaderMountHandle };
+
+function queryPaperShaderMount() {
+  return document.querySelector<PaperShaderHost>(".export-preview [data-paper-shader], .canvas-area [data-paper-shader]")?.paperShaderMount ?? null;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function recordCanvasAnimation({
+  canvas,
+  frameIndexes,
+  fps,
+  mimeType,
+  bitrate,
+  onProgress,
+  renderFrame,
+}: {
+  canvas: HTMLCanvasElement;
+  frameIndexes: number[];
+  fps: number;
+  mimeType: string;
+  bitrate: number;
+  onProgress: (progress: number) => void;
+  renderFrame: (timeSec: number) => void | Promise<void>;
+}): Promise<Blob> {
+  const stream = canvas.captureStream(0);
+  const track = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
+  const chunks: BlobPart[] = [];
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
+  const finished = new Promise<Blob>((resolve, reject) => {
+    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+    recorder.onerror = () => reject(new Error("Video encoding failed"));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+  });
+  const frameDurationMs = 1000 / fps;
+  const timelineStart = performance.now();
+  recorder.start();
+  for (let index = 0; index < frameIndexes.length; index += 1) {
+    await renderFrame(frameIndexes[index] / fps);
+    track.requestFrame?.();
+    onProgress((index + 1) / frameIndexes.length);
+    const targetTime = timelineStart + (index + 1) * frameDurationMs;
+    const waitMs = targetTime - performance.now();
+    if (waitMs > 0) await sleep(waitMs);
+  }
+  recorder.stop();
+  const blob = await finished;
+  stream.getTracks().forEach((item) => item.stop());
+  return blob;
 }
 
 function PaperShaderCanvas({ recipe, paused, onReady }: { recipe: Recipe; paused: boolean; onReady?: (canvas: HTMLCanvasElement) => void }) {
@@ -661,7 +722,7 @@ function NativeShaderCanvas({ recipe, paused, onError }: { recipe: Recipe; pause
       if (!start.current) start.current = timestamp;
       gl.uniform2f(gl.getUniformLocation(program, "u_resolution"), width, height); set1("u_time", (timestamp - start.current) / 1000);
       gl.uniform2f(gl.getUniformLocation(program, "u_pointer"), pointer.current.x, pointer.current.y); gl.uniform2f(gl.getUniformLocation(program, "u_velocity"), pointer.current.vx, pointer.current.vy);
-      const colors = [...recipe.palette]; while (colors.length < 5) colors.push(colors.at(-1) || "#000000"); gl.uniform3fv(gl.getUniformLocation(program, "u_colors"), colors.slice(0, 5).map(hexToRgb).flat());
+      const colors = [...recipe.palette]; while (colors.length < 8) colors.push(colors.at(-1) || "#000000"); gl.uniform3fv(gl.getUniformLocation(program, "u_colors"), colors.slice(0, 8).map(hexToRgb).flat());
       set1("u_style", recipe.style); set1("u_intensity", recipe.intensity); set1("u_zoom", recipe.zoom); set1("u_warp", recipe.warp); set1("u_contrast", recipe.contrast); set1("u_speed", recipe.speed); set1("u_drift", recipe.drift); set1("u_animate", recipe.animate ? 1 : 0); set1("u_reverse", recipe.reverse ? 1 : 0); set1("u_rotate", recipe.rotate); set1("u_seed", recipe.seed); set1("u_smooth_blend", recipe.smoothBlend ? 1 : 0); set1("u_grain", recipe.grain); gl.uniform2f(gl.getUniformLocation(program, "u_offset"), recipe.offsetX, recipe.offsetY);
       set1("u_cursor_on", recipe.cursorEnabled ? 1 : 0); set1("u_cursor_effect", ["push", "repel", "swirl", "ripple", "spotlight"].indexOf(recipe.cursorEffect)); set1("u_cursor_strength", recipe.cursorStrength); set1("u_cursor_radius", recipe.cursorRadius);
       gl.drawArrays(gl.TRIANGLES, 0, 3); pointer.current.vx *= .92; pointer.current.vy *= .92;
@@ -777,9 +838,16 @@ function CompactVideoExportPanel({ recipe, settings, onSettingsChange, onExport,
 function hexToHsv(hex: string) { const [r, g, b] = hexToRgb(hex).map((value) => value / 255); const max = Math.max(r, g, b); const min = Math.min(r, g, b); const delta = max - min; const hue = delta === 0 ? 0 : max === r ? 60 * (((g - b) / delta) % 6) : max === g ? 60 * ((b - r) / delta + 2) : 60 * ((r - g) / delta + 4); return { h: (hue + 360) % 360, s: max === 0 ? 0 : delta / max, v: max }; }
 function hsvToHex(h: number, s: number, v: number) { const c = v * s; const x = c * (1 - Math.abs((h / 60) % 2 - 1)); const m = v - c; const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]; return `#${[r, g, b].map((value) => Math.round((value + m) * 255).toString(16).padStart(2, "0")).join("")}`; }
 function ShadcnColorPicker({ color, onChange }: { color: string; onChange: (color: string) => void }) {
-  const [open, setOpen] = useState(false); const hsv = hexToHsv(color); const update = (next: Partial<typeof hsv>) => onChange(hsvToHex(next.h ?? hsv.h, next.s ?? hsv.s, next.v ?? hsv.v)); const rgb = hexToRgb(color);
+  const [open, setOpen] = useState(false); const hsv = hexToHsv(color); const update = (next: Partial<typeof hsv>) => onChange(hsvToHex(next.h ?? hsv.h, next.s ?? hsv.s, next.v ?? hsv.v)); const inputId = useId();
   const pick = (event: PointerEvent<HTMLDivElement>) => { const rect = event.currentTarget.getBoundingClientRect(); update({ s: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)), v: 1 - Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)) }); };
-  return <div className="shadcn-colour-picker"><button className="colour-picker-trigger" onClick={() => setOpen((value) => !value)} aria-label={`Edit ${color}`} style={{ background: color }} /><span>{color.toUpperCase()}</span>{open && <div className="colour-picker-popover"><div className="colour-sv" style={{ backgroundColor: `hsl(${hsv.h} 100% 50%)` }} onPointerDown={pick} onPointerMove={(event) => event.buttons === 1 && pick(event)}><i style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }} /></div><input className="colour-hue" aria-label="Hue" type="range" min="0" max="360" value={hsv.h} onChange={(event) => update({ h: Number(event.target.value) })} /><div className="colour-hex"><span style={{ background: color }} /><input value={color.toUpperCase()} onChange={(event) => /^#[0-9A-Fa-f]{6}$/.test(event.target.value) && onChange(event.target.value)} aria-label="Hex colour" /></div><div className="colour-rgb">{["R", "G", "B"].map((label, index) => <label key={label}><input type="number" min="0" max="255" value={rgb[index]} onChange={(event) => { const next = [...rgb]; next[index] = Math.min(255, Math.max(0, Number(event.target.value))); onChange(`#${next.map((value) => value.toString(16).padStart(2, "0")).join("")}`); }} /><span>{label}</span></label>)}</div></div>}</div>;
+  const sampleScreenColour = async () => { const EyeDropper = (window as typeof window & { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper; if (!EyeDropper) return; try { onChange((await new EyeDropper().open()).sRGBHex); } catch {} };
+  const canSampleScreen = typeof window !== "undefined" && "EyeDropper" in window;
+  return <div className="shadcn-colour-picker"><button type="button" className="colour-picker-trigger" onClick={() => setOpen((value) => !value)} aria-label={`Edit ${color}`} aria-expanded={open}><i style={{ background: color }} /><span>{color.toUpperCase()}</span><ChevronDown /></button>{open && <div className="colour-picker-popover colourful-picker" role="dialog" aria-label="Colour picker" onKeyDown={(event) => event.key === "Escape" && setOpen(false)}><div className="colour-sv" style={{ backgroundColor: `hsl(${hsv.h} 100% 50%)` }} onPointerDown={pick} onPointerMove={(event) => event.buttons === 1 && pick(event)}><i style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }} /></div><input id={inputId} className="colour-hue" aria-label="Hue" type="range" min="0" max="360" value={hsv.h} onChange={(event) => update({ h: Number(event.target.value) })} /><div className="colour-opacity-rail" aria-label="Opacity is fixed at 100 percent"><i style={{ background: color }} /></div><div className="colour-picker-footer"><button type="button" className="colour-eyedropper" onClick={sampleScreenColour} disabled={!canSampleScreen} title={canSampleScreen ? "Pick a colour from the screen" : "Screen colour picking is not available in this browser"} aria-label="Pick a colour from the screen"><Pipette /></button><label className="colour-hex" htmlFor={`${inputId}-hex`}><span>HEX</span><ChevronDown /><input id={`${inputId}-hex`} value={color.toUpperCase()} onChange={(event) => /^#[0-9A-Fa-f]{6}$/.test(event.target.value) && onChange(event.target.value)} aria-label="Hex colour" /></label><span className="colour-opacity">100 <small>%</small></span></div></div>}</div>;
+}
+
+function PalettePanel({ recipe, selectedTheme, setSelectedTheme, onChange, onApplyTheme, onRandomize, savedPalettes, paletteName, setPaletteName, onSavePalette, onDeletePalette }: { recipe: Recipe; selectedTheme: string; setSelectedTheme: (name: string) => void; onChange: (update: Partial<Recipe>) => void; onApplyTheme: (name: string) => void; onRandomize: () => void; savedPalettes: SavedPalette[]; paletteName: string; setPaletteName: (name: string) => void; onSavePalette: () => void; onDeletePalette: (id: string) => void }) {
+  const applyPalette = (palette: string[]) => onChange({ palette: [...palette] });
+  return <div className="panel-content palette-panel"><div className="palette-panel-heading"><div><h2>Colours</h2><p className="helper">Build a gradient with up to eight colour stops.</p></div><span>{recipe.palette.length}/8</span></div><div className="stops">{recipe.palette.map((color, index) => <div className="color-stop" key={`${color}-${index}`}><ShadcnColorPicker color={color} onChange={(nextColor) => { const palette = [...recipe.palette]; palette[index] = nextColor; onChange({ palette }); }} /><b>{index === 0 ? "BASE" : `STOP ${index}`}</b><span>{index === recipe.palette.length - 1 ? "Highlight" : "Gradient"}</span><button className="remove-colour" type="button" disabled={recipe.palette.length <= 2} aria-label={`Remove stop ${index}`} onClick={() => onChange({ palette: recipe.palette.filter((_, itemIndex) => itemIndex !== index) })}><Minus /></button></div>)}</div><button className="add-colour" disabled={recipe.palette.length >= 8} onClick={() => applyPalette([...recipe.palette, recipe.palette.at(-1) || "#ffffff"])}><Plus /> {recipe.palette.length >= 8 ? "Maximum of 8 colours" : "Add colour stop"}</button><div className="switch-row"><span>Smooth blend (OKLab)</span><button className={`switch ${recipe.smoothBlend ? "on" : ""}`} onClick={() => onChange({ smoothBlend: !recipe.smoothBlend })} aria-pressed={recipe.smoothBlend}><i /></button></div><div className="section-label">From a theme</div><div className="theme-picker"><div className="theme-select"><select aria-label="Company inspired themes" value={selectedTheme} onChange={(event) => setSelectedTheme(event.target.value)}>{companyThemes.map((theme) => <option key={theme.name}>{theme.name}</option>)}</select><ChevronDown /></div><button className="button primary" onClick={() => onApplyTheme(selectedTheme)}><Palette /> Apply theme</button></div><button className="button wide ghost palette-randomize" onClick={onRandomize}><Sparkles /> Randomize palette</button><section className="saved-palette-section"><div className="section-label">Your palettes</div><div className="save-palette-row"><input value={paletteName} maxLength={36} onChange={(event) => setPaletteName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onSavePalette()} placeholder="Name this palette" aria-label="Saved palette name" /><button className="button primary" onClick={onSavePalette}><Save /> Save</button></div>{savedPalettes.length ? <div className="saved-palette-grid">{savedPalettes.map((item) => <div className="saved-palette" key={item.id}><button className="saved-palette-apply" onClick={() => applyPalette(item.colors)} aria-label={`Apply ${item.name}`}>{item.colors.map((color) => <i key={color} style={{ background: color }} />)}<span>{item.name}</span><small>{item.colors.length} colours</small></button><button className="saved-palette-delete" onClick={() => onDeletePalette(item.id)} aria-label={`Delete ${item.name}`}><Trash2 /></button></div>)}</div> : <p className="saved-palette-empty">Save your current gradient to reuse it in this browser.</p>}</section><div className="section-label palette-label">Curated palettes</div><div className="palette-grid">{palettes.map((palette, index) => <button key={index} onClick={() => applyPalette(palette)} className={`palette-swatch ${recipe.palette.join() === palette.join() ? "selected" : ""}`}>{palette.map((color) => <i key={color} style={{ background: color }} />)}</button>)}</div></div>;
 }
 
 function Slider({ label, value, min = 0, max = 1, step = .01, unit = "%", onChange, trailing }: { label: string; value: number; min?: number; max?: number; step?: number; unit?: string; onChange: (value: number) => void; trailing?: ReactNode }) {
@@ -808,6 +876,23 @@ function CameraPadScene({ recipe, mockup, geometry, camera }: { recipe: Recipe; 
   </>;
 }
 
+function CameraPresetPreview({ recipe, mockup, geometry, preset }: { recipe: Recipe; mockup: MockupSettings; geometry: CameraGeometry; preset: (typeof mockupPresets)[number] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [padSize, setPadSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const update = () => setPadSize({ width: element.clientWidth, height: element.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const thumbGeometry = useMemo(() => ({ ...geometry, padWidth: padSize.width, padHeight: padSize.height }), [geometry, padSize.width, padSize.height]);
+  const camera = useMemo(() => ({ ...mockup, ...preset.settings }), [mockup, preset.settings]);
+  return <div ref={ref} className="layout-preset-preview camera-pad zoom-preview" aria-hidden="true">{geometry.viewportWidth && padSize.width ? <CameraPadScene recipe={recipe} mockup={mockup} geometry={thumbGeometry} camera={camera} /> : null}</div>;
+}
+
 export function ShaderStudio() {
   const [recipe, setRecipe] = useState<Recipe>(defaultRecipe);
   const [tab, setTab] = useState<Tab>("presets");
@@ -828,6 +913,8 @@ export function ShaderStudio() {
   const [videoSettings, setVideoSettings] = useState<VideoExportSettings>({ aspect: "16:9", height: 720, fps: 30, duration: 3, loop: false, mimeType: "video/webm;codecs=vp9" });
   const [videoProgress, setVideoProgress] = useState<number | null>(null);
   const [selectedTheme, setSelectedTheme] = useState<string>(companyThemes[0].name);
+  const [savedPalettes, setSavedPalettes] = useState<SavedPalette[]>([]);
+  const [paletteName, setPaletteName] = useState("");
   const [mockup, setMockup] = useState<MockupSettings>({ media: null, mediaType: null, frame: "browser", radius: 20, shadow: 40, scale: .82, x: 0, y: 0, cameraX: 0, cameraY: 0, tiltX: 0, tiltY: 0, rotate: 0, visible: true });
   const [cameraMode, setCameraMode] = useState<CameraMode>("zoom");
   const [mockupAspect, setMockupAspect] = useState<MockupAspect>("auto");
@@ -860,18 +947,13 @@ export function ShaderStudio() {
   const saved = useStudioStore((state) => state.saved);
   const saveRecipe = useStudioStore((state) => state.save);
   const hasRestoredRecipe = useRef(false);
+  const hasRestoredPalettes = useRef(false);
 
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--mockup-preview-media", mockup.mediaType === "image" && mockup.media ? `url("${mockup.media}")` : "none");
     return () => { root.style.removeProperty("--mockup-preview-media"); };
   }, [mockup.media, mockup.mediaType, mockup.rotate, mockup.scale, mockup.tiltX, mockup.tiltY]);
-  useEffect(() => {
-    const root = document.documentElement;
-    const [base, middle = base, highlight = middle] = recipe.palette;
-    root.style.setProperty("--camera-preset-backdrop", `radial-gradient(ellipse at 18% 30%, ${highlight} 0%, transparent 35%), radial-gradient(ellipse at 78% 72%, ${middle} 0%, transparent 44%), linear-gradient(135deg, ${base}, #050608 82%)`);
-    return () => { root.style.removeProperty("--camera-preset-backdrop"); };
-  }, [recipe.palette]);
   useEffect(() => { const stage = document.querySelector<HTMLElement>(".mockup-stage"); if (stage) stage.style.aspectRatio = mockupAspect === "auto" ? "" : mockupAspect; }, [mockupAspect]);
   useEffect(() => {
     if (tab !== "mockup") return;
@@ -981,7 +1063,15 @@ export function ShaderStudio() {
     }
     hasRestoredRecipe.current = true;
   }, [saveRecipe]);
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SAVED_PALETTES_KEY) ?? "[]");
+      if (Array.isArray(parsed)) setSavedPalettes(parsed.filter((item): item is SavedPalette => Boolean(item?.id && item?.name && Array.isArray(item.colors) && item.colors.length > 0 && item.colors.length <= 8)));
+    } catch {}
+    hasRestoredPalettes.current = true;
+  }, []);
   useEffect(() => { localStorage.setItem(SAVED_RECIPES_KEY, JSON.stringify(saved)); }, [saved]);
+  useEffect(() => { if (hasRestoredPalettes.current) localStorage.setItem(SAVED_PALETTES_KEY, JSON.stringify(savedPalettes)); }, [savedPalettes]);
   useEffect(() => {
     if (hasRestoredRecipe.current) localStorage.setItem(RESUME_RECIPE_KEY, JSON.stringify(recipe));
   }, [recipe]);
@@ -999,6 +1089,13 @@ export function ShaderStudio() {
   const resetCharacter = () => { const settings = presetSettings[recipe.style] ?? defaultRecipe; change({ intensity: settings.intensity ?? defaultRecipe.intensity, zoom: settings.zoom ?? defaultRecipe.zoom, warp: settings.warp ?? defaultRecipe.warp, contrast: settings.contrast ?? defaultRecipe.contrast, seed: defaultRecipe.seed }); };
   const recolour = () => change({ palette: palettes[Math.floor(Math.random() * palettes.length)] });
   const randomizePalette = () => { const palette = palettes[Math.floor(Math.random() * palettes.length)]; change({ palette }); setToast("Palette randomized"); };
+  const saveCurrentPalette = () => {
+    const name = paletteName.trim() || `Palette ${savedPalettes.length + 1}`;
+    setSavedPalettes((items) => [{ id: crypto.randomUUID(), name, colors: [...recipe.palette] }, ...items].slice(0, 24));
+    setPaletteName("");
+    setToast(`${name} saved locally`);
+  };
+  const deleteSavedPalette = (id: string) => { setSavedPalettes((items) => items.filter((item) => item.id !== id)); setToast("Saved palette removed"); };
   const applyTheme = (name: string) => { const theme = companyThemes.find((item) => item.name === name) ?? companyThemes[0]; setSelectedTheme(theme.name); change({ palette: [...theme.palette] }); setToast(`${theme.name} theme applied`); };
   const remix = () => {
     const effects: CursorEffect[] = ["push", "repel", "swirl", "ripple", "spotlight"];
@@ -1116,8 +1213,8 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       gl.uniform2f(gl.getUniformLocation(program, "u_pointer"), .5, .5);
       gl.uniform2f(gl.getUniformLocation(program, "u_velocity"), 0, 0);
       const colors = [...recipe.palette];
-      while (colors.length < 5) colors.push(colors.at(-1) || "#000000");
-      gl.uniform3fv(gl.getUniformLocation(program, "u_colors"), colors.slice(0, 5).map(hexToRgb).flat());
+       while (colors.length < 8) colors.push(colors.at(-1) || "#000000");
+       gl.uniform3fv(gl.getUniformLocation(program, "u_colors"), colors.slice(0, 8).map(hexToRgb).flat());
       set1("u_style", recipe.style);
       set1("u_intensity", recipe.intensity);
       set1("u_zoom", recipe.zoom);
@@ -1184,61 +1281,111 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     const format = videoFormats.find((item) => item.value === videoSettings.mimeType);
     const mimeType = format && MediaRecorder.isTypeSupported(format.value) ? format.value : videoFormats.find((item) => MediaRecorder.isTypeSupported(item.value))?.value;
     if (!mimeType) { setToast("No compatible video format is available in this browser"); return; }
-    const [ratioWidth, ratioHeight] = outputAspect.split(":").map(Number);
-    const height = videoSettings.height;
-    const width = Math.round(height * ratioWidth / ratioHeight / 2) * 2;
+    const { width, height } = shaderOutputSize(videoSettings.aspect, videoSettings.height);
+    const forwardFrames = videoSettings.duration * videoSettings.fps;
+    const frameIndexes = loopFrameIndexes(forwardFrames, videoSettings.loop);
+    const bitrate = height >= 1080 ? 12_000_000 : height >= 720 ? 6_000_000 : 3_000_000;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
 
-    if (isPaperStyle(recipe.style)) {
-      const sourceCanvas = queryShaderCanvas(recipe.style);
-      if (!sourceCanvas) { setToast("Paper shader preview is unavailable"); return; }
-      try {
-        const stream = sourceCanvas.captureStream(videoSettings.fps);
-        const chunks: BlobPart[] = [];
-        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: height >= 1080 ? 12_000_000 : height >= 720 ? 6_000_000 : 3_000_000 });
-        const finished = new Promise<Blob>((resolve, reject) => { recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); }; recorder.onerror = () => reject(new Error("Video encoding failed")); recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType })); });
-        const forwardFrames = videoSettings.duration * videoSettings.fps;
-        const frameIndexes = loopFrameIndexes(forwardFrames, videoSettings.loop);
-        recorder.start(); setVideoProgress(0);
-        for (let index = 0; index < frameIndexes.length; index += 1) {
-          setVideoProgress((index + 1) / frameIndexes.length);
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 1000 / videoSettings.fps));
-        }
-        recorder.stop(); const blob = await finished; stream.getTracks().forEach((item) => item.stop());
-        const extension = mimeType.includes("mp4") ? "mp4" : "webm"; const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `${recipe.name.toLowerCase().replaceAll(" ", "-")}${videoSettings.loop ? "-loop" : ""}.${extension}`; link.click(); window.setTimeout(() => URL.revokeObjectURL(link.href), 1000); setToast("Video exported");
-      } catch (error) { setToast(error instanceof Error ? error.message : "Could not export video"); }
-      finally { setVideoProgress(null); }
-      return;
-    }
-
-    const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
-    const gl = canvas.getContext("webgl", { preserveDrawingBuffer: true });
-    if (!gl) { setToast("WebGL is unavailable in this browser"); return; }
-    const compile = (type: number, source: string) => { const shader = gl.createShader(type)!; gl.shaderSource(shader, source); gl.compileShader(shader); if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || "Shader compile failed"); return shader; };
     try {
-      const vertex = compile(gl.VERTEX_SHADER, "attribute vec2 position; void main(){gl_Position=vec4(position,0.,1.);}");
-      const fragment = compile(gl.FRAGMENT_SHADER, recipe.glsl);
-      const program = gl.createProgram()!; gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program);
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || "Shader link failed");
-      const position = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, position); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-      const stream = canvas.captureStream(0); const track = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
-      const chunks: BlobPart[] = []; const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: height >= 1080 ? 12_000_000 : height >= 720 ? 6_000_000 : 3_000_000 });
-      const finished = new Promise<Blob>((resolve, reject) => { recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); }; recorder.onerror = () => reject(new Error("Video encoding failed")); recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType })); });
-      const renderFrame = (time: number) => {
-        gl.viewport(0, 0, width, height); gl.useProgram(program); gl.enableVertexAttribArray(gl.getAttribLocation(program, "position")); gl.vertexAttribPointer(gl.getAttribLocation(program, "position"), 2, gl.FLOAT, false, 0, 0);
-        const set1 = (name: string, value: number) => gl.uniform1f(gl.getUniformLocation(program, name), value);
-        gl.uniform2f(gl.getUniformLocation(program, "u_resolution"), width, height); set1("u_time", time); gl.uniform2f(gl.getUniformLocation(program, "u_pointer"), .5, .5); gl.uniform2f(gl.getUniformLocation(program, "u_velocity"), 0, 0);
-        const colors = [...recipe.palette]; while (colors.length < 5) colors.push(colors.at(-1) || "#000000"); gl.uniform3fv(gl.getUniformLocation(program, "u_colors"), colors.slice(0, 5).map(hexToRgb).flat());
-        set1("u_style", recipe.style); set1("u_intensity", recipe.intensity); set1("u_zoom", recipe.zoom); set1("u_warp", recipe.warp); set1("u_contrast", recipe.contrast); set1("u_speed", recipe.speed); set1("u_drift", recipe.drift); set1("u_animate", recipe.animate ? 1 : 0); set1("u_reverse", recipe.reverse ? 1 : 0); set1("u_rotate", recipe.rotate); set1("u_seed", recipe.seed); set1("u_smooth_blend", recipe.smoothBlend ? 1 : 0); set1("u_grain", recipe.grain); gl.uniform2f(gl.getUniformLocation(program, "u_offset"), recipe.offsetX, recipe.offsetY);
-        set1("u_cursor_on", 0); set1("u_cursor_effect", 0); set1("u_cursor_strength", 0); set1("u_cursor_radius", 0); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.finish(); track.requestFrame?.();
-      };
-      const forwardFrames = videoSettings.duration * videoSettings.fps;
-      const frameIndexes = loopFrameIndexes(forwardFrames, videoSettings.loop);
-      recorder.start(); setVideoProgress(0);
-      for (let index = 0; index < frameIndexes.length; index += 1) { renderFrame(frameIndexes[index] / videoSettings.fps); setVideoProgress((index + 1) / frameIndexes.length); await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); }
-      recorder.stop(); const blob = await finished; stream.getTracks().forEach((item) => item.stop());
-      const extension = mimeType.includes("mp4") ? "mp4" : "webm"; const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `${recipe.name.toLowerCase().replaceAll(" ", "-")}${videoSettings.loop ? "-loop" : ""}.${extension}`; link.click(); window.setTimeout(() => URL.revokeObjectURL(link.href), 1000); setToast("Video exported");
-    } catch (error) { setToast(error instanceof Error ? error.message : "Could not export video"); }
-    finally { setVideoProgress(null); }
+      setVideoProgress(0);
+      let blob: Blob;
+
+      if (isPaperStyle(recipe.style)) {
+        const mount = queryPaperShaderMount();
+        if (!mount) throw new Error("Shader preview is unavailable");
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Could not create export canvas");
+        const previewSpeed = paperSpeed(recipe, false);
+        mount.setSpeed(0);
+        try {
+          blob = await recordCanvasAnimation({
+            canvas,
+            frameIndexes,
+            fps: videoSettings.fps,
+            mimeType,
+            bitrate,
+            onProgress: (progress) => setVideoProgress(progress),
+            renderFrame: (timeSec) => {
+              mount.setFrame(recipe.seed + timeSec * 1000);
+              context.drawImage(mount.canvasElement, 0, 0, width, height);
+            },
+          });
+        } finally {
+          mount.setSpeed(previewSpeed);
+        }
+      } else {
+        const gl = canvas.getContext("webgl", { preserveDrawingBuffer: true });
+        if (!gl) throw new Error("WebGL is unavailable in this browser");
+        const compile = (type: number, source: string) => { const shader = gl.createShader(type)!; gl.shaderSource(shader, source); gl.compileShader(shader); if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || "Shader compile failed"); return shader; };
+        const vertex = compile(gl.VERTEX_SHADER, "attribute vec2 position; void main(){gl_Position=vec4(position,0.,1.);}");
+        const fragment = compile(gl.FRAGMENT_SHADER, recipe.glsl);
+        const program = gl.createProgram()!;
+        gl.attachShader(program, vertex);
+        gl.attachShader(program, fragment);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || "Shader link failed");
+        gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()!);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+        const renderFrame = (time: number) => {
+          gl.viewport(0, 0, width, height);
+          gl.useProgram(program);
+          gl.enableVertexAttribArray(gl.getAttribLocation(program, "position"));
+          gl.vertexAttribPointer(gl.getAttribLocation(program, "position"), 2, gl.FLOAT, false, 0, 0);
+          const set1 = (name: string, value: number) => gl.uniform1f(gl.getUniformLocation(program, name), value);
+          gl.uniform2f(gl.getUniformLocation(program, "u_resolution"), width, height);
+          set1("u_time", time);
+          gl.uniform2f(gl.getUniformLocation(program, "u_pointer"), .5, .5);
+          gl.uniform2f(gl.getUniformLocation(program, "u_velocity"), 0, 0);
+          const colors = [...recipe.palette];
+          while (colors.length < 8) colors.push(colors.at(-1) || "#000000");
+          gl.uniform3fv(gl.getUniformLocation(program, "u_colors"), colors.slice(0, 8).map(hexToRgb).flat());
+          set1("u_style", recipe.style);
+          set1("u_intensity", recipe.intensity);
+          set1("u_zoom", recipe.zoom);
+          set1("u_warp", recipe.warp);
+          set1("u_contrast", recipe.contrast);
+          set1("u_speed", recipe.speed);
+          set1("u_drift", recipe.drift);
+          set1("u_animate", recipe.animate ? 1 : 0);
+          set1("u_reverse", recipe.reverse ? 1 : 0);
+          set1("u_rotate", recipe.rotate);
+          set1("u_seed", recipe.seed);
+          set1("u_smooth_blend", recipe.smoothBlend ? 1 : 0);
+          set1("u_grain", recipe.grain);
+          gl.uniform2f(gl.getUniformLocation(program, "u_offset"), recipe.offsetX, recipe.offsetY);
+          set1("u_cursor_on", 0);
+          set1("u_cursor_effect", 0);
+          set1("u_cursor_strength", 0);
+          set1("u_cursor_radius", 0);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+          gl.finish();
+        };
+        blob = await recordCanvasAnimation({
+          canvas,
+          frameIndexes,
+          fps: videoSettings.fps,
+          mimeType,
+          bitrate,
+          onProgress: (progress) => setVideoProgress(progress),
+          renderFrame: (timeSec) => { renderFrame(timeSec); },
+        });
+      }
+
+      const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${recipe.name.toLowerCase().replaceAll(" ", "-")}${videoSettings.loop ? "-loop" : ""}.${extension}`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      setToast("Video exported");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not export video");
+    } finally {
+      setVideoProgress(null);
+    }
   };
   const save = () => { const item = { ...recipe, id: crypto.randomUUID(), name: saveName.trim() || "Untitled recipe" }; saveRecipe(item); setSaveOpen(false); };
   const activeLabel = useMemo(() => styleNames[recipe.style] ?? recipe.name, [recipe.style, recipe.name]);
@@ -1453,13 +1600,13 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
         {tab === "mockup" && <div className="editor-mode-switch" role="group" aria-label="Mockup editor mode"><button className={editorMode === "mockup" ? "active" : ""} onClick={() => setEditorMode("mockup")}>Mockup</button><button className={editorMode === "animation" ? "active" : ""} onClick={openAnimation} disabled={!basePresetId && !mockup.media} title={!basePresetId && !mockup.media ? "Upload media or choose a mockup preset first" : undefined}>Animation <Badge variant="secondary">Beta</Badge></button></div>}
         {tab === "mockup" && <section className="output-frame-control"><div><span className="section-label">Output frame</span><p>Canvas, camera, animation, and export</p></div><div className="output-frame-grid">{outputFrames.map((frame) => <button key={frame.aspect} className={outputAspect === frame.aspect ? "selected" : ""} onClick={() => setOutputFrame(frame.aspect)} aria-pressed={outputAspect === frame.aspect}><i className={`output-frame-shape ratio-${frame.aspect.replace(":", "-")}`} /><span>{frame.aspect}</span><small>{frame.label}</small></button>)}</div></section>}
         {tab === "style" && <div className="panel-content"><div className="panel-title"><div><h2>Shader styles</h2><p className="helper">Exact, fixed-frame PNG previews of each base shader.</p></div></div>{presetGroups.map((group) => <section className="preset-group" key={group.title}><h3>{group.title}</h3><div className="preset-grid">{group.items.map(([name, style]) => <button key={name} onClick={() => selectPreset(name, style)} className={`preset-card ${recipe.style === style ? "selected" : ""}`}><ShaderThumbnail style={style} /><span>{name}</span></button>)}</div></section>)}<section className="control-section"><h3>Character</h3><Slider label="Intensity" value={recipe.intensity} onChange={(intensity) => change({ intensity })} /><Slider label="Zoom" value={recipe.zoom} min={.5} max={2} unit="×" onChange={(zoom) => change({ zoom })} /><Slider label="Warp" value={recipe.warp} onChange={(warp) => change({ warp })} /><Slider label="Contrast" value={recipe.contrast} onChange={(contrast) => change({ contrast })} /><div className="button-pair"><button className="button ghost" onClick={() => change({ seed: Math.floor(Math.random() * 100000) })}><WandSparkles /> Reseed</button><button className="button ghost" onClick={() => change({ intensity: defaultRecipe.intensity, zoom: defaultRecipe.zoom, warp: defaultRecipe.warp, contrast: defaultRecipe.contrast, seed: defaultRecipe.seed })}><RefreshCcw /> Reset</button></div></section><section className="control-section"><h3>Frame</h3><Slider label="Rotate" value={recipe.rotate} min={-3.14} max={3.14} step={.01} unit=" rad" onChange={(rotate) => change({ rotate })} /><Slider label="Offset X" value={recipe.offsetX} min={-1} max={1} onChange={(offsetX) => change({ offsetX })} /><Slider label="Offset Y" value={recipe.offsetY} min={-1} max={1} onChange={(offsetY) => change({ offsetY })} /></section></div>}
-        {tab === "palette" && <div className="panel-content"><h2>Colours</h2><div className="stops">{recipe.palette.map((color, index) => <div className="color-stop" key={`${color}-${index}`}><ShadcnColorPicker color={color} onChange={(nextColor) => { const palette = [...recipe.palette]; palette[index] = nextColor; change({ palette }); }} /><b>{index === 0 ? "BASE" : `STOP ${index}`}</b>{index > 0 && <button className="remove-colour" type="button" aria-label={`Remove stop ${index}`} onClick={() => { const palette = recipe.palette.filter((_, itemIndex) => itemIndex !== index); change({ palette }); }}><Minus /></button>}</div>)}</div><button className="add-colour" disabled={recipe.palette.length >= 5} onClick={() => change({ palette: [...recipe.palette, recipe.palette.at(-1) || "#ffffff"] })}>+ &nbsp; Add colour</button><div className="switch-row"><span>Smooth blend (OKLab)</span><button className={`switch ${recipe.smoothBlend ? "on" : ""}`} onClick={() => change({ smoothBlend: !recipe.smoothBlend })} aria-pressed={recipe.smoothBlend}><i /></button></div><div className="section-label">From a theme</div><div className="theme-picker"><div className="theme-select"><select aria-label="Company inspired themes" value={selectedTheme} onChange={(event) => setSelectedTheme(event.target.value)}>{companyThemes.map((theme) => <option key={theme.name}>{theme.name}</option>)}</select><ChevronDown /></div><button className="button primary" onClick={() => applyTheme(selectedTheme)}><Palette /> Apply theme</button></div><button className="button wide ghost palette-randomize" onClick={randomizePalette}><Sparkles /> Randomize palette</button><div className="section-label palette-label">Curated palettes</div><div className="palette-grid">{palettes.map((palette, index) => <button key={index} onClick={() => change({ palette })} className={`palette-swatch ${recipe.palette.join() === palette.join() ? "selected" : ""}`}>{palette.map((color) => <i key={color} style={{ background: color }} />)}</button>)}</div></div>}
+        {tab === "palette" && <PalettePanel recipe={recipe} selectedTheme={selectedTheme} setSelectedTheme={setSelectedTheme} onChange={change} onApplyTheme={applyTheme} onRandomize={randomizePalette} savedPalettes={savedPalettes} paletteName={paletteName} setPaletteName={setPaletteName} onSavePalette={saveCurrentPalette} onDeletePalette={deleteSavedPalette} />}
         {tab === "surface" && <div className="panel-content"><h2>Surface</h2><p className="helper">Control depth, texture, and contrast across the full shader field.</p><Slider label="Intensity" value={recipe.intensity} onChange={(intensity) => change({ intensity })} /><Slider label="Zoom" value={recipe.zoom} min={.5} max={2} unit="×" onChange={(zoom) => change({ zoom })} /><Slider label="Warp" value={recipe.warp} onChange={(warp) => change({ warp })} /><Slider label="Contrast" value={recipe.contrast} onChange={(contrast) => change({ contrast })} /><Slider label="Grain" value={recipe.grain} max={.12} onChange={(grain) => change({ grain })} /></div>}
         {tab === "motion" && <div className="panel-content"><h2>Movement</h2><div className="switch-row"><span>Animate</span><button className={`switch ${recipe.animate ? "on" : ""}`} onClick={() => change({ animate: !recipe.animate })} aria-pressed={recipe.animate}><i /></button></div><Slider label="Speed" value={recipe.speed} min={0} max={3} unit="×" onChange={(speed) => change({ speed })} /><Slider label="Drift" value={recipe.drift} onChange={(drift) => change({ drift })} /><div className="switch-row"><span>Reverse</span><button className={`switch ${recipe.reverse ? "on" : ""}`} onClick={() => change({ reverse: !recipe.reverse })} aria-pressed={recipe.reverse}><i /></button></div><p className="helper">Drift controls how far the whole field wanders.</p></div>}
         {tab === "cursor" && <div className="panel-content"><h2>Interaction</h2>{isPaperStyle(recipe.style) && <p className="helper">Paper Design shaders respond through offset and rotation — the same controls as native shaders, mapped to each component&apos;s transform props.</p>}<div className="switch-row"><span>React to cursor</span><button className={`switch ${recipe.cursorEnabled ? "on" : ""}`} onClick={() => change({ cursorEnabled: !recipe.cursorEnabled })} aria-pressed={recipe.cursorEnabled}><i /></button></div><div className="section-label">Effect</div><div className="effect-grid">{(["push", "repel", "swirl", "ripple", "spotlight"] as CursorEffect[]).map((effect) => <button key={effect} className={recipe.cursorEffect === effect ? "selected" : ""} onClick={() => change({ cursorEffect: effect })}>{effect}</button>)}</div><Slider label="Strength" value={recipe.cursorStrength} onChange={(cursorStrength) => change({ cursorStrength })} /><Slider label="Radius" value={recipe.cursorRadius} min={.15} max={1} onChange={(cursorRadius) => change({ cursorRadius })} /><p className="helper">{recipe.cursorEffect === "swirl" ? "Twists the pattern around the pointer." : "Moves the shader field with the pointer."}</p><button className="button wide ghost" onClick={() => change({ cursorStrength: defaultRecipe.cursorStrength, cursorRadius: defaultRecipe.cursorRadius })}><RefreshCcw /> Reset cursor</button></div>}
         {tab === "mockup" && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid">{(["browser", "glass", "border", "inset", "none"] as MockupFrame[]).map((frame) => <button key={frame} onClick={() => updateMockup({ frame })} className={mockup.frame === frame ? "selected" : ""}><i className={`frame-sample ${frame}`} /><span>{frame === "none" ? "Clean" : frame}</span></button>)}</div><div className="section-label">Border</div><div className="mockup-segment"><button onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment"><button onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
       </div>{tab === "presets" && <div className="presets-panel"><div className="presets-heading"><span className="eyebrow">PRESET LIBRARY</span><h2>Presets</h2><p>App defaults and your saved shader looks, ready to remix.</p></div>{availablePresets.length ? <><label className="preset-search"><Search /><input value={presetSearch} onChange={(event) => setPresetSearch(event.target.value)} placeholder="Search presets" aria-label="Search presets" />{presetSearch && <button type="button" onClick={() => setPresetSearch("")} aria-label="Clear preset search"><X /></button>}</label><div className="preset-library"><AnimatePresence initial={false} mode="popLayout">{filteredSaved.map((item, index) => <motion.button layout key={item.id} onClick={() => setRecipe(item)} aria-label={`Open preset ${item.name}`} initial={{ opacity: 0, y: 12, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: .985 }} transition={{ duration: .22, delay: Math.min(index * .025, .14), ease: [0.22, 1, 0.36, 1] }}><SavedRecipePreview recipe={item} /><span><b>{item.name}</b><em>{styleNames[item.style] ?? "Custom look"}</em></span></motion.button>)}</AnimatePresence>{!filteredSaved.length && <motion.p className="preset-search-empty" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>No presets match "{presetSearch}".</motion.p>}</div></> : <div className="presets-empty"><div className="presets-empty-icon"><WandSparkles /></div><h3>No presets yet</h3><p>Build a look in Styles, then save it here for your next project.</p><button className="button primary" onClick={() => setTab("style")}><WandSparkles /> Explore styles</button></div>}</div>}{tab === "surface" && <div className="surface-blur-inline"><div className="section-label">Focus</div><Slider label="Blur" value={recipe.blur ?? 0} max={20} step={.25} unit="px" onChange={(blur) => change({ blur })} /></div>}<div className="local-recipes"><div className="section-label">Local recipes</div>{saved.length ? saved.slice(0, 3).map((item) => <button key={item.id} onClick={() => setRecipe(item)}>{item.name}<ChevronDown /></button>) : <span>Saved looks appear here.</span>}</div></aside>
-{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div ref={mockupStageRef} className={`mockup-stage frame-${mockup.frame}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, visibility: mockup.visible ? "visible" : "hidden" }}><div className="browser-bar"><i /><i /><i /><span>your-product.com</span></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <div className="mockup-demo"><span>THE NEXT RELEASE</span><h1>Make the work<br />feel inevitable.</h1><p>Your product, framed by a live visual system.</p><b>Explore release notes <span>→</span></b></div>}</div></div><aside className="camera-inspector"><div className="camera-tabs"><button className={cameraMode === "zoom" ? "active" : ""} onClick={() => setCameraMode("zoom")}>Zoom</button><button className={cameraMode === "tilt" ? "active" : ""} onClick={() => setCameraMode("tilt")}>Tilt</button></div><div ref={cameraPadRef} className={`camera-pad ${cameraMode === "tilt" ? "tilt-preview" : "zoom-preview"}`} onPointerDown={moveCamera} onPointerMove={(event) => event.buttons === 1 && moveCamera(event)} role="application" aria-label="Camera positioning pad">{cameraMode === "zoom" && <CameraPadScene recipe={recipe} mockup={mockup} geometry={cameraGeometry} camera={mockup} />}{cameraMode === "tilt" && <div className="camera-pad-card" style={{ transform: `translate(-50%, -50%) perspective(280px) rotateX(${mockup.tiltX}deg) rotateY(${mockup.tiltY}deg) rotateZ(${mockup.rotate}deg) scale(${.65 + mockup.scale * .18})` }} />}<span className="camera-cross horizontal" /><span className="camera-cross vertical" /><i className="camera-handle" style={{ left: `${cameraMode === "zoom" ? getCameraFrame(mockup, cameraGeometry).cropCenterX : 50 + Math.max(-45, Math.min(45, mockup.tiltY)) * 1.1}${cameraMode === "zoom" ? "px" : "%"}`, top: `${cameraMode === "zoom" ? getCameraFrame(mockup, cameraGeometry).cropCenterY : 50 - Math.max(-45, Math.min(45, mockup.tiltX)) * 1.1}${cameraMode === "zoom" ? "px" : "%"}` }} /><span className="tilt-preview-label">Tilt preview</span></div><Slider label={cameraMode === "zoom" ? "Zoom" : "Tilt"} value={cameraMode === "zoom" ? mockup.scale : mockup.tiltY} min={cameraMode === "zoom" ? .45 : -12} max={cameraMode === "zoom" ? 4 : 12} step={.01} unit={cameraMode === "zoom" ? "×" : "°"} onChange={(value) => updateMockup(cameraMode === "zoom" ? { scale: value } : { tiltY: value })} /><div className="section-label camera-label">Camera presets</div><div className="layout-presets">{mockupPresets.map((preset) => <button key={preset.id} onClick={() => useMockupPreset(preset)} className={`layout-preset ${preset.id}`}><span className="layout-backdrop" /><i style={{ transform: `translate(${preset.settings.cameraX * .35}%, ${preset.settings.cameraY * .35}%) rotate(${preset.settings.rotate}deg) scale(${preset.settings.scale})` }} />{preset.id === "hero" && <b>Full view</b>}<em>{preset.label}</em></button>)}</div></aside></>}
+{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div ref={mockupStageRef} className={`mockup-stage frame-${mockup.frame}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, visibility: mockup.visible ? "visible" : "hidden" }}><div className="browser-bar"><i /><i /><i /><span>your-product.com</span></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <div className="mockup-demo"><span>THE NEXT RELEASE</span><h1>Make the work<br />feel inevitable.</h1><p>Your product, framed by a live visual system.</p><b>Explore release notes <span>→</span></b></div>}</div></div><aside className="camera-inspector"><div className="camera-tabs"><button className={cameraMode === "zoom" ? "active" : ""} onClick={() => setCameraMode("zoom")}>Zoom</button><button className={cameraMode === "tilt" ? "active" : ""} onClick={() => setCameraMode("tilt")}>Tilt</button></div><div ref={cameraPadRef} className={`camera-pad ${cameraMode === "tilt" ? "tilt-preview" : "zoom-preview"}`} onPointerDown={moveCamera} onPointerMove={(event) => event.buttons === 1 && moveCamera(event)} role="application" aria-label="Camera positioning pad">{cameraMode === "zoom" && <CameraPadScene recipe={recipe} mockup={mockup} geometry={cameraGeometry} camera={mockup} />}{cameraMode === "tilt" && <div className="camera-pad-card" style={{ transform: `translate(-50%, -50%) perspective(280px) rotateX(${mockup.tiltX}deg) rotateY(${mockup.tiltY}deg) rotateZ(${mockup.rotate}deg) scale(${.65 + mockup.scale * .18})` }} />}<span className="camera-cross horizontal" /><span className="camera-cross vertical" /><i className="camera-handle" style={{ left: `${cameraMode === "zoom" ? getCameraFrame(mockup, cameraGeometry).cropCenterX : 50 + Math.max(-45, Math.min(45, mockup.tiltY)) * 1.1}${cameraMode === "zoom" ? "px" : "%"}`, top: `${cameraMode === "zoom" ? getCameraFrame(mockup, cameraGeometry).cropCenterY : 50 - Math.max(-45, Math.min(45, mockup.tiltX)) * 1.1}${cameraMode === "zoom" ? "px" : "%"}` }} /><span className="tilt-preview-label">Tilt preview</span></div><Slider label={cameraMode === "zoom" ? "Zoom" : "Tilt"} value={cameraMode === "zoom" ? mockup.scale : mockup.tiltY} min={cameraMode === "zoom" ? .45 : -12} max={cameraMode === "zoom" ? 4 : 12} step={.01} unit={cameraMode === "zoom" ? "×" : "°"} onChange={(value) => updateMockup(cameraMode === "zoom" ? { scale: value } : { tiltY: value })} /><div className="section-label camera-label">Camera presets</div><div className="layout-presets">{mockupPresets.map((preset) => <button key={preset.id} onClick={() => useMockupPreset(preset)} className={`layout-preset ${preset.id}`}><CameraPresetPreview recipe={recipe} mockup={mockup} geometry={cameraGeometry} preset={preset} />{preset.id === "hero" && <b>Full view</b>}<em>{preset.label}</em></button>)}</div></aside></>}
         {tab === "mockup" && editorMode === "animation" && <>
          <aside className="motion-inspector">
           <div className="motion-header"><div><span className="eyebrow">SELECTED ANIMATION</span><h2>{activeClip?.label ?? "Animation"}</h2><p>Choose its destination, then fine-tune it.</p></div><div className="motion-header-actions"><button className="duplicate-animation" onClick={duplicateActiveClip} title="Duplicate animation" aria-label="Duplicate animation"><Copy /></button><button onClick={selectBaseMedia}>Edit base</button></div></div>
@@ -1469,7 +1616,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
 <div ref={cameraPadRef} className={`camera-pad animation-camera-pad ${cameraMode === "tilt" ? "tilt-preview" : "zoom-preview"}`} onPointerDown={moveAnimationCamera} onPointerMove={(event) => event.buttons === 1 && moveAnimationCamera(event)} role="application" aria-label="Animation destination camera pad">{cameraMode === "zoom" && <CameraPadScene recipe={recipe} mockup={mockup} geometry={cameraGeometry} camera={{ ...mockup, scale: activeTargetScale, x: activeClip?.targetX ?? mockup.x, y: activeClip?.targetY ?? mockup.y, rotate: activeClip?.targetRotate ?? mockup.rotate, cameraX: activeClip?.cameraX ?? 0, cameraY: activeClip?.cameraY ?? 0 }} />}{cameraMode === "tilt" && <div className="camera-pad-card" style={{ transform: `translate(-50%, -50%) perspective(280px) rotateX(${(activeClip?.targetTiltX ?? 0) + focusTilt}deg) rotateY(${activeClip?.targetTiltY ?? 0}deg) rotateZ(${activeClip?.targetRotate ?? 0}deg) scale(${.65 + activeTargetScale * .18})` }} />}<span className="camera-cross horizontal" /><span className="camera-cross vertical" /><i className="camera-handle" style={{ left: `${cameraMode === "zoom" ? getCameraFrame({ scale: activeTargetScale, cameraX: activeClip?.cameraX ?? 0, cameraY: activeClip?.cameraY ?? 0 }, cameraGeometry).cropCenterX : 50 + Math.max(-45, Math.min(45, activeClip?.targetTiltY ?? 0)) * 1.1}${cameraMode === "zoom" ? "px" : "%"}`, top: `${cameraMode === "zoom" ? getCameraFrame({ scale: activeTargetScale, cameraX: activeClip?.cameraX ?? 0, cameraY: activeClip?.cameraY ?? 0 }, cameraGeometry).cropCenterY : 50 - Math.max(-45, Math.min(45, (activeClip?.targetTiltX ?? 0) + focusTilt)) * 1.1}${cameraMode === "zoom" ? "px" : "%"}` }} /><span className="tilt-preview-label">Tilt preview</span></div>
           {cameraMode === "zoom" ? <Slider label="Zoom" value={focusZoom} min={.45} max={4} step={.01} unit="×" onChange={(value) => { if (!activeClip) return; const updated = { ...activeClip, zoom: value }; setFocusZoom(value); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} /> : <><Slider label="Tilt X" value={(activeClip?.targetTiltX ?? 0) + focusTilt} min={-45} max={45} step={1} unit="°" onChange={(value) => { if (!activeClip) return; const updated = { ...activeClip, targetTiltX: value, tilt: 0 }; setFocusTilt(0); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} /><Slider label="Tilt Y" value={activeClip?.targetTiltY ?? 0} min={-45} max={45} step={1} unit="°" onChange={(value) => { if (!activeClip) return; const updated = { ...activeClip, targetTiltY: value }; setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} /></>}
 <AnimatePresence>{precisionOpen && <motion.div className="precision-controls" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}><Slider label="Hold" value={animationHold} min={0} max={Math.min(3, (activeClip?.duration ?? animationDuration) * .3)} step={.1} unit="s" onChange={(hold) => { if (!activeClip) return; const updated = { ...activeClip, hold }; setAnimationHold(hold); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} />{activeClip?.easing === "spring" && <Slider label="Spring speed" value={springSpeed} min={.3} max={2} step={.1} unit="×" onChange={(speed) => { if (!activeClip) return; const updated = { ...activeClip, springSpeed: speed }; setSpringSpeed(speed); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} />}</motion.div>}</AnimatePresence>
-<div className="section-label camera-label">Destination preset</div><div className="layout-presets">{mockupPresets.map((preset) => <button key={preset.id} onClick={() => { if (!activeClip) return; const updated = { ...activeClip, presetId: preset.id, label: cameraMode === "tilt" ? "Tilt" : "Zoom", targetX: activeClip.targetX, targetY: activeClip.targetY, targetTiltX: preset.settings.tiltX, targetTiltY: preset.settings.tiltY, targetRotate: preset.settings.rotate, cameraX: preset.settings.cameraX, cameraY: preset.settings.cameraY }; setFocusPresetId(preset.id); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} className={`layout-preset ${preset.id} ${focusPresetId === preset.id ? "selected" : ""}`}><span className="layout-backdrop" /><i style={{ transform: `translate(${preset.settings.cameraX * .35}%, ${preset.settings.cameraY * .35}%) rotate(${preset.settings.rotate}deg) scale(${preset.settings.scale})` }} /><em>{preset.id === basePresetId ? "Same as base" : preset.label}</em></button>)}</div>
+<div className="section-label camera-label">Destination preset</div><div className="layout-presets">{mockupPresets.map((preset) => <button key={preset.id} onClick={() => { if (!activeClip) return; const updated = { ...activeClip, presetId: preset.id, label: cameraMode === "tilt" ? "Tilt" : "Zoom", targetX: activeClip.targetX, targetY: activeClip.targetY, targetTiltX: preset.settings.tiltX, targetTiltY: preset.settings.tiltY, targetRotate: preset.settings.rotate, cameraX: preset.settings.cameraX, cameraY: preset.settings.cameraY }; setFocusPresetId(preset.id); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} className={`layout-preset ${preset.id} ${focusPresetId === preset.id ? "selected" : ""}`}><CameraPresetPreview recipe={recipe} mockup={mockup} geometry={cameraGeometry} preset={preset} /><em>{preset.id === basePresetId ? "Same as base" : preset.label}</em></button>)}</div>
         </aside>
         <AnimatePresence>
           {editorMode === "animation" && <motion.section className="timeline-composer" initial={{ y: 36, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 36, opacity: 0 }} transition={{ type: "spring", stiffness: 280, damping: 28 }}>
