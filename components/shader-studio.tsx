@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-type Tab = "presets" | "style" | "palette" | "surface" | "motion" | "cursor" | "mockup";
+type Tab = "presets" | "visuals" | "mockup";
+type VisualSection = "style" | "palette" | "surface" | "motion" | "cursor";
 type CursorEffect = "push" | "repel" | "swirl" | "ripple" | "spotlight";
 type ExportTab = "image" | "video" | "mockup" | "prompt" | "react" | "glsl";
 type MockupExportMode = "image" | "video";
@@ -393,9 +394,9 @@ const companyThemes = [
 ] as const;
 
 const tabs = [
-  { id: "presets" as const, label: "Presets", icon: BookOpen }, { id: "style" as const, label: "Style", icon: WandSparkles }, { id: "palette" as const, label: "Palette", icon: Palette },
-  { id: "surface" as const, label: "Surface", icon: Layers3 }, { id: "motion" as const, label: "Motion", icon: Gauge },
-  { id: "cursor" as const, label: "Cursor", icon: MousePointer2 }, { id: "mockup" as const, label: "Mockup", icon: ImageDown }, { id: "export" as const, label: "Export", icon: Download },
+  { id: "presets" as const, label: "Presets", icon: BookOpen },
+  { id: "visuals" as const, label: "Visuals", icon: WandSparkles },
+  { id: "mockup" as const, label: "Mockup", icon: ImageDown },
 ];
 
 const mockupPresets: { id: string; label: string; settings: Omit<MockupSettings, "media" | "mediaType" | "frame" | "radius" | "shadow" | "visible"> }[] = [
@@ -838,16 +839,176 @@ function CompactVideoExportPanel({ recipe, settings, onSettingsChange, onExport,
 function hexToHsv(hex: string) { const [r, g, b] = hexToRgb(hex).map((value) => value / 255); const max = Math.max(r, g, b); const min = Math.min(r, g, b); const delta = max - min; const hue = delta === 0 ? 0 : max === r ? 60 * (((g - b) / delta) % 6) : max === g ? 60 * ((b - r) / delta + 2) : 60 * ((r - g) / delta + 4); return { h: (hue + 360) % 360, s: max === 0 ? 0 : delta / max, v: max }; }
 function hsvToHex(h: number, s: number, v: number) { const c = v * s; const x = c * (1 - Math.abs((h / 60) % 2 - 1)); const m = v - c; const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]; return `#${[r, g, b].map((value) => Math.round((value + m) * 255).toString(16).padStart(2, "0")).join("")}`; }
 function ShadcnColorPicker({ color, onChange }: { color: string; onChange: (color: string) => void }) {
-  const [open, setOpen] = useState(false); const hsv = hexToHsv(color); const update = (next: Partial<typeof hsv>) => onChange(hsvToHex(next.h ?? hsv.h, next.s ?? hsv.s, next.v ?? hsv.v)); const inputId = useId();
+  const [open, setOpen] = useState(false); const [hexInput, setHexInput] = useState(color.toUpperCase()); const hsv = hexToHsv(color); const update = (next: Partial<typeof hsv>) => onChange(hsvToHex(next.h ?? hsv.h, next.s ?? hsv.s, next.v ?? hsv.v)); const inputId = useId();
+  useEffect(() => setHexInput(color.toUpperCase()), [color]);
   const pick = (event: PointerEvent<HTMLDivElement>) => { const rect = event.currentTarget.getBoundingClientRect(); update({ s: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)), v: 1 - Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)) }); };
   const sampleScreenColour = async () => { const EyeDropper = (window as typeof window & { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper; if (!EyeDropper) return; try { onChange((await new EyeDropper().open()).sRGBHex); } catch {} };
   const canSampleScreen = typeof window !== "undefined" && "EyeDropper" in window;
-  return <div className="shadcn-colour-picker"><button type="button" className="colour-picker-trigger" onClick={() => setOpen((value) => !value)} aria-label={`Edit ${color}`} aria-expanded={open}><i style={{ background: color }} /><span>{color.toUpperCase()}</span><ChevronDown /></button>{open && <div className="colour-picker-popover colourful-picker" role="dialog" aria-label="Colour picker" onKeyDown={(event) => event.key === "Escape" && setOpen(false)}><div className="colour-sv" style={{ backgroundColor: `hsl(${hsv.h} 100% 50%)` }} onPointerDown={pick} onPointerMove={(event) => event.buttons === 1 && pick(event)}><i style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }} /></div><input id={inputId} className="colour-hue" aria-label="Hue" type="range" min="0" max="360" value={hsv.h} onChange={(event) => update({ h: Number(event.target.value) })} /><div className="colour-opacity-rail" aria-label="Opacity is fixed at 100 percent"><i style={{ background: color }} /></div><div className="colour-picker-footer"><button type="button" className="colour-eyedropper" onClick={sampleScreenColour} disabled={!canSampleScreen} title={canSampleScreen ? "Pick a colour from the screen" : "Screen colour picking is not available in this browser"} aria-label="Pick a colour from the screen"><Pipette /></button><label className="colour-hex" htmlFor={`${inputId}-hex`}><span>HEX</span><ChevronDown /><input id={`${inputId}-hex`} value={color.toUpperCase()} onChange={(event) => /^#[0-9A-Fa-f]{6}$/.test(event.target.value) && onChange(event.target.value)} aria-label="Hex colour" /></label><span className="colour-opacity">100 <small>%</small></span></div></div>}</div>;
+  return <div className="shadcn-colour-picker"><button type="button" className="colour-picker-trigger" onClick={() => setOpen((value) => !value)} aria-label={`Edit ${color}`} aria-expanded={open}><i style={{ background: color }} /><span>{color.toUpperCase()}</span><ChevronDown /></button>{open && <div className="colour-picker-popover colourful-picker" role="dialog" aria-label="Colour picker" onKeyDown={(event) => event.key === "Escape" && setOpen(false)}><div className="colour-sv" style={{ backgroundColor: `hsl(${hsv.h} 100% 50%)` }} onPointerDown={pick} onPointerMove={(event) => event.buttons === 1 && pick(event)}><i style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }} /></div><input id={inputId} className="colour-hue" aria-label="Hue" type="range" min="0" max="360" value={hsv.h} onChange={(event) => update({ h: Number(event.target.value) })} /><div className="colour-opacity-rail" aria-label="Opacity is fixed at 100 percent"><i style={{ background: `linear-gradient(90deg, transparent, ${color})` }} /></div><div className="colour-picker-footer"><button type="button" className="colour-eyedropper" onClick={sampleScreenColour} disabled={!canSampleScreen} title={canSampleScreen ? "Pick a colour from the screen" : "Screen colour picking is not available in this browser"} aria-label="Pick a colour from the screen"><Pipette /></button><label className="colour-hex" htmlFor={`${inputId}-hex`}><span>HEX</span><ChevronDown /><input id={`${inputId}-hex`} value={hexInput} onChange={(event) => { const next = event.target.value.toUpperCase(); setHexInput(next); if (/^#[0-9A-F]{6}$/.test(next)) onChange(next); }} onBlur={() => setHexInput(color.toUpperCase())} aria-label="Hex colour" /></label><span className="colour-opacity">100 <small>%</small></span></div></div>}</div>;
 }
 
-function PalettePanel({ recipe, selectedTheme, setSelectedTheme, onChange, onApplyTheme, onRandomize, savedPalettes, paletteName, setPaletteName, onSavePalette, onDeletePalette }: { recipe: Recipe; selectedTheme: string; setSelectedTheme: (name: string) => void; onChange: (update: Partial<Recipe>) => void; onApplyTheme: (name: string) => void; onRandomize: () => void; savedPalettes: SavedPalette[]; paletteName: string; setPaletteName: (name: string) => void; onSavePalette: () => void; onDeletePalette: (id: string) => void }) {
+function PalettePanel({ recipe, embedded = false, selectedTheme, setSelectedTheme, onChange, onApplyTheme, onRandomize, savedPalettes, paletteName, setPaletteName, onSavePalette, onDeletePalette }: { recipe: Recipe; embedded?: boolean; selectedTheme: string; setSelectedTheme: (name: string) => void; onChange: (update: Partial<Recipe>) => void; onApplyTheme: (name: string) => void; onRandomize: () => void; savedPalettes: SavedPalette[]; paletteName: string; setPaletteName: (name: string) => void; onSavePalette: () => void; onDeletePalette: (id: string) => void }) {
   const applyPalette = (palette: string[]) => onChange({ palette: [...palette] });
-  return <div className="panel-content palette-panel"><div className="palette-panel-heading"><div><h2>Colours</h2><p className="helper">Build a gradient with up to eight colour stops.</p></div><span>{recipe.palette.length}/8</span></div><div className="stops">{recipe.palette.map((color, index) => <div className="color-stop" key={`${color}-${index}`}><ShadcnColorPicker color={color} onChange={(nextColor) => { const palette = [...recipe.palette]; palette[index] = nextColor; onChange({ palette }); }} /><b>{index === 0 ? "BASE" : `STOP ${index}`}</b><span>{index === recipe.palette.length - 1 ? "Highlight" : "Gradient"}</span><button className="remove-colour" type="button" disabled={recipe.palette.length <= 2} aria-label={`Remove stop ${index}`} onClick={() => onChange({ palette: recipe.palette.filter((_, itemIndex) => itemIndex !== index) })}><Minus /></button></div>)}</div><button className="add-colour" disabled={recipe.palette.length >= 8} onClick={() => applyPalette([...recipe.palette, recipe.palette.at(-1) || "#ffffff"])}><Plus /> {recipe.palette.length >= 8 ? "Maximum of 8 colours" : "Add colour stop"}</button><div className="switch-row"><span>Smooth blend (OKLab)</span><button className={`switch ${recipe.smoothBlend ? "on" : ""}`} onClick={() => onChange({ smoothBlend: !recipe.smoothBlend })} aria-pressed={recipe.smoothBlend}><i /></button></div><div className="section-label">From a theme</div><div className="theme-picker"><div className="theme-select"><select aria-label="Company inspired themes" value={selectedTheme} onChange={(event) => setSelectedTheme(event.target.value)}>{companyThemes.map((theme) => <option key={theme.name}>{theme.name}</option>)}</select><ChevronDown /></div><button className="button primary" onClick={() => onApplyTheme(selectedTheme)}><Palette /> Apply theme</button></div><button className="button wide ghost palette-randomize" onClick={onRandomize}><Sparkles /> Randomize palette</button><section className="saved-palette-section"><div className="section-label">Your palettes</div><div className="save-palette-row"><input value={paletteName} maxLength={36} onChange={(event) => setPaletteName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onSavePalette()} placeholder="Name this palette" aria-label="Saved palette name" /><button className="button primary" onClick={onSavePalette}><Save /> Save</button></div>{savedPalettes.length ? <div className="saved-palette-grid">{savedPalettes.map((item) => <div className="saved-palette" key={item.id}><button className="saved-palette-apply" onClick={() => applyPalette(item.colors)} aria-label={`Apply ${item.name}`}>{item.colors.map((color) => <i key={color} style={{ background: color }} />)}<span>{item.name}</span><small>{item.colors.length} colours</small></button><button className="saved-palette-delete" onClick={() => onDeletePalette(item.id)} aria-label={`Delete ${item.name}`}><Trash2 /></button></div>)}</div> : <p className="saved-palette-empty">Save your current gradient to reuse it in this browser.</p>}</section><div className="section-label palette-label">Curated palettes</div><div className="palette-grid">{palettes.map((palette, index) => <button key={index} onClick={() => applyPalette(palette)} className={`palette-swatch ${recipe.palette.join() === palette.join() ? "selected" : ""}`}>{palette.map((color) => <i key={color} style={{ background: color }} />)}</button>)}</div></div>;
+  return <div className="panel-content palette-panel"><div className="palette-panel-heading"><div>{!embedded && <><h2>Colours</h2><p className="helper">Build a gradient with up to eight colour stops.</p></>}</div><span>{recipe.palette.length}/8</span></div><div className="stops">{recipe.palette.map((color, index) => <div className="color-stop" key={`${color}-${index}`}><ShadcnColorPicker color={color} onChange={(nextColor) => { const palette = [...recipe.palette]; palette[index] = nextColor; onChange({ palette }); }} /><b>{index === 0 ? "BASE" : `STOP ${index}`}</b><span>{index === recipe.palette.length - 1 ? "Highlight" : "Gradient"}</span><button className="remove-colour" type="button" disabled={recipe.palette.length <= 2} aria-label={`Remove stop ${index}`} onClick={() => onChange({ palette: recipe.palette.filter((_, itemIndex) => itemIndex !== index) })}><Minus /></button></div>)}</div><button className="add-colour" disabled={recipe.palette.length >= 8} onClick={() => applyPalette([...recipe.palette, recipe.palette.at(-1) || "#ffffff"])}><Plus /> {recipe.palette.length >= 8 ? "Maximum of 8 colours" : "Add colour stop"}</button><div className="switch-row"><span>Smooth blend (OKLab)</span><button className={`switch ${recipe.smoothBlend ? "on" : ""}`} onClick={() => onChange({ smoothBlend: !recipe.smoothBlend })} aria-pressed={recipe.smoothBlend}><i /></button></div><div className="section-label">From a theme</div><div className="theme-picker"><div className="theme-select"><select aria-label="Company inspired themes" value={selectedTheme} onChange={(event) => setSelectedTheme(event.target.value)}>{companyThemes.map((theme) => <option key={theme.name}>{theme.name}</option>)}</select><ChevronDown /></div><button className="button primary" onClick={() => onApplyTheme(selectedTheme)}><Palette /> Apply theme</button></div><button className="button wide ghost palette-randomize" onClick={onRandomize}><Sparkles /> Randomize palette</button><section className="saved-palette-section"><div className="section-label">Your palettes</div><div className="save-palette-row"><input value={paletteName} maxLength={36} onChange={(event) => setPaletteName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onSavePalette()} placeholder="Name this palette" aria-label="Saved palette name" /><button className="button primary" onClick={onSavePalette}><Save /> Save</button></div>{savedPalettes.length ? <div className="saved-palette-grid">{savedPalettes.map((item) => <div className="saved-palette" key={item.id}><button className="saved-palette-apply" onClick={() => applyPalette(item.colors)} aria-label={`Apply ${item.name}`}>{item.colors.map((color) => <i key={color} style={{ background: color }} />)}<span>{item.name}</span><small>{item.colors.length} colours</small></button><button className="saved-palette-delete" onClick={() => onDeletePalette(item.id)} aria-label={`Delete ${item.name}`}><Trash2 /></button></div>)}</div> : <p className="saved-palette-empty">Save your current gradient to reuse it in this browser.</p>}</section><div className="section-label palette-label">Curated palettes</div><div className="palette-grid">{palettes.map((palette, index) => <button key={index} onClick={() => applyPalette(palette)} className={`palette-swatch ${recipe.palette.join() === palette.join() ? "selected" : ""}`}>{palette.map((color) => <i key={color} style={{ background: color }} />)}</button>)}</div></div>;
+}
+
+function VisualsSectionHeader({ label, summary, icon: Icon, preview, active, onSelect }: { label: string; summary: string; icon: ComponentType<{ size?: number; strokeWidth?: number }>; preview?: ReactNode; active?: boolean; onSelect: () => void }) {
+  return (
+    <button type="button" className={`bg-accordion-trigger ${active ? "active" : ""}`} onClick={onSelect} aria-expanded={active ?? false}>
+      <span className="bg-accordion-icon"><Icon size={15} strokeWidth={1.8} /></span>
+      <span className="bg-accordion-copy"><strong>{label}</strong><span className="bg-accordion-summary">{summary}</span></span>
+      {preview && <span className="bg-accordion-preview">{preview}</span>}
+      <ChevronDown className="bg-accordion-chevron" aria-hidden="true" />
+    </button>
+  );
+}
+
+function VisualsPanel({
+  recipe,
+  activeLabel,
+  selectedTheme,
+  setSelectedTheme,
+  onChange,
+  onApplyTheme,
+  onRandomize,
+  savedPalettes,
+  paletteName,
+  setPaletteName,
+  onSavePalette,
+  onDeletePalette,
+  onSelectPreset,
+}: {
+  recipe: Recipe;
+  activeLabel: string;
+  selectedTheme: string;
+  setSelectedTheme: (name: string) => void;
+  onChange: (update: Partial<Recipe>) => void;
+  onApplyTheme: (name: string) => void;
+  onRandomize: () => void;
+  savedPalettes: SavedPalette[];
+  paletteName: string;
+  setPaletteName: (name: string) => void;
+  onSavePalette: () => void;
+  onDeletePalette: (id: string) => void;
+  onSelectPreset: (name: string, style: number) => void;
+}) {
+  const [openSection, setOpenSection] = useState<VisualSection>("style");
+  const surfaceSummary = `Intensity ${Math.round(recipe.intensity * 100)}% · Grain ${Math.round(recipe.grain / .12 * 100)}%`;
+  const motionSummary = recipe.animate ? `On · ${recipe.speed.toFixed(1)}× speed` : "Static";
+  const cursorSummary = recipe.cursorEnabled ? recipe.cursorEffect : "Off";
+
+  const sections: { id: VisualSection; label: string; icon: ComponentType<{ size?: number; strokeWidth?: number }>; summary: string; preview?: ReactNode }[] = [
+    { id: "style", label: "Style", icon: WandSparkles, summary: activeLabel, preview: <span className="style-chip"><ShaderThumbnail style={recipe.style} /></span> },
+    { id: "palette", label: "Palette", icon: Palette, summary: `${recipe.palette.length} stops · ${recipe.smoothBlend ? "Smooth blend" : "Linear blend"}`, preview: <>{recipe.palette.slice(0, 4).map((color) => <i key={color} className="palette-chip" style={{ background: color }} />)}</> },
+    { id: "surface", label: "Surface", icon: Layers3, summary: surfaceSummary },
+    { id: "motion", label: "Motion", icon: Gauge, summary: motionSummary },
+    { id: "cursor", label: "Cursor", icon: MousePointer2, summary: cursorSummary },
+  ];
+
+  const active = sections.find((section) => section.id === openSection) ?? sections[0];
+  const collapsed = sections.filter((section) => section.id !== openSection);
+
+  const renderSectionContent = (section: VisualSection) => {
+    switch (section) {
+      case "style":
+        return (
+          <div className="panel-content">
+            <p className="helper">Choose the shader engine. Palette and tuning settings stay with your look.</p>
+            {presetGroups.map((group) => (
+              <section className="preset-group" key={group.title}>
+                <h3>{group.title}</h3>
+                <div className="preset-grid">{group.items.map(([name, style]) => (
+                  <button key={name} type="button" onClick={() => onSelectPreset(name, style)} className={`preset-card ${recipe.style === style ? "selected" : ""}`}>
+                    <ShaderThumbnail style={style} />
+                    <span>{name}</span>
+                  </button>
+                ))}</div>
+              </section>
+            ))}
+          </div>
+        );
+      case "palette":
+        return <PalettePanel recipe={recipe} embedded selectedTheme={selectedTheme} setSelectedTheme={setSelectedTheme} onChange={onChange} onApplyTheme={onApplyTheme} onRandomize={onRandomize} savedPalettes={savedPalettes} paletteName={paletteName} setPaletteName={setPaletteName} onSavePalette={onSavePalette} onDeletePalette={onDeletePalette} />;
+      case "surface":
+        return (
+          <div className="panel-content">
+            <p className="helper">Depth, texture, framing, and focus across the shader field.</p>
+            <Slider label="Intensity" value={recipe.intensity} onChange={(intensity) => onChange({ intensity })} />
+            <Slider label="Zoom" value={recipe.zoom} min={.5} max={2} unit="×" onChange={(zoom) => onChange({ zoom })} />
+            <Slider label="Warp" value={recipe.warp} onChange={(warp) => onChange({ warp })} />
+            <Slider label="Contrast" value={recipe.contrast} onChange={(contrast) => onChange({ contrast })} />
+            <Slider label="Grain" value={recipe.grain} max={.12} onChange={(grain) => onChange({ grain })} />
+            <Slider label="Blur" value={recipe.blur ?? 0} max={20} step={.25} unit="px" onChange={(blur) => onChange({ blur })} />
+            <section className="control-section">
+              <h3>Frame</h3>
+              <Slider label="Rotate" value={recipe.rotate} min={-3.14} max={3.14} step={.01} unit=" rad" onChange={(rotate) => onChange({ rotate })} />
+              <Slider label="Offset X" value={recipe.offsetX} min={-1} max={1} onChange={(offsetX) => onChange({ offsetX })} />
+              <Slider label="Offset Y" value={recipe.offsetY} min={-1} max={1} onChange={(offsetY) => onChange({ offsetY })} />
+            </section>
+            <section className="control-section">
+              <h3>Character</h3>
+              <div className="button-pair">
+                <button className="button ghost" type="button" onClick={() => onChange({ seed: Math.floor(Math.random() * 100000) })}><WandSparkles /> Reseed</button>
+                <button className="button ghost" type="button" onClick={() => onChange({ intensity: defaultRecipe.intensity, zoom: defaultRecipe.zoom, warp: defaultRecipe.warp, contrast: defaultRecipe.contrast, seed: defaultRecipe.seed })}><RefreshCcw /> Reset</button>
+              </div>
+            </section>
+          </div>
+        );
+      case "motion":
+        return (
+          <div className="panel-content">
+            <div className="switch-row"><span>Animate</span><button type="button" className={`switch ${recipe.animate ? "on" : ""}`} onClick={() => onChange({ animate: !recipe.animate })} aria-pressed={recipe.animate}><i /></button></div>
+            <Slider label="Speed" value={recipe.speed} min={0} max={3} unit="×" onChange={(speed) => onChange({ speed })} />
+            <Slider label="Drift" value={recipe.drift} onChange={(drift) => onChange({ drift })} />
+            <div className="switch-row"><span>Reverse</span><button type="button" className={`switch ${recipe.reverse ? "on" : ""}`} onClick={() => onChange({ reverse: !recipe.reverse })} aria-pressed={recipe.reverse}><i /></button></div>
+            <p className="helper">Drift controls how far the whole field wanders.</p>
+          </div>
+        );
+      case "cursor":
+        return (
+          <div className="panel-content">
+            {isPaperStyle(recipe.style) && <p className="helper">Paper Design shaders respond through offset and rotation — mapped to each component&apos;s transform props.</p>}
+            <div className="switch-row"><span>React to cursor</span><button type="button" className={`switch ${recipe.cursorEnabled ? "on" : ""}`} onClick={() => onChange({ cursorEnabled: !recipe.cursorEnabled })} aria-pressed={recipe.cursorEnabled}><i /></button></div>
+            <div className="section-label">Effect</div>
+            <div className="effect-grid">{(["push", "repel", "swirl", "ripple", "spotlight"] as CursorEffect[]).map((effect) => (
+              <button key={effect} type="button" className={recipe.cursorEffect === effect ? "selected" : ""} onClick={() => onChange({ cursorEffect: effect })}>{effect}</button>
+            ))}</div>
+            <Slider label="Strength" value={recipe.cursorStrength} onChange={(cursorStrength) => onChange({ cursorStrength })} />
+            <Slider label="Radius" value={recipe.cursorRadius} min={.15} max={1} onChange={(cursorRadius) => onChange({ cursorRadius })} />
+            <p className="helper">{recipe.cursorEffect === "swirl" ? "Twists the pattern around the pointer." : "Moves the shader field with the pointer."}</p>
+            <button type="button" className="button wide ghost" onClick={() => onChange({ cursorStrength: defaultRecipe.cursorStrength, cursorRadius: defaultRecipe.cursorRadius })}><RefreshCcw /> Reset cursor</button>
+          </div>
+        );
+      default: {
+        const unhandled: never = section;
+        return unhandled;
+      }
+    }
+  };
+
+  return (
+    <div className="visuals-panel">
+      <div className="visuals-heading">
+        <h2>Visuals</h2>
+        <p>Style, colour, surface, motion, and cursor — one live shader field.</p>
+      </div>
+
+      <div className="visuals-active">
+        <VisualsSectionHeader label={active.label} summary={active.summary} icon={active.icon} preview={active.preview} active onSelect={() => undefined} />
+        <div className="visuals-active-scroll scroll-fade scroll-fade-y scroll-fade-6 no-scrollbar">
+          {renderSectionContent(openSection)}
+        </div>
+      </div>
+
+      <div className="visuals-rail" role="tablist" aria-label="Visual sections">
+        {collapsed.map((section) => (
+          <div className="bg-accordion collapsed" key={section.id}>
+            <VisualsSectionHeader label={section.label} summary={section.summary} icon={section.icon} preview={section.preview} onSelect={() => setOpenSection(section.id)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Slider({ label, value, min = 0, max = 1, step = .01, unit = "%", onChange, trailing }: { label: string; value: number; min?: number; max?: number; step?: number; unit?: string; onChange: (value: number) => void; trailing?: ReactNode }) {
@@ -895,7 +1056,7 @@ function CameraPresetPreview({ recipe, mockup, geometry, preset }: { recipe: Rec
 
 export function ShaderStudio() {
   const [recipe, setRecipe] = useState<Recipe>(defaultRecipe);
-  const [tab, setTab] = useState<Tab>("presets");
+  const [tab, setTab] = useState<Tab>("visuals");
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -1595,17 +1756,13 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   return <main className={`studio-shell ${editorMode === "animation" ? "animation-mode" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
     <header className="topbar"><div className="brand"><span className="brand-mark">S</span><span>SHADER STUDIO</span></div><div className="top-actions"><button className="icon-button" onClick={undo} disabled={!history.length} aria-label="Undo"><Undo2 /></button><button className="icon-button" onClick={redo} disabled={!future.length} aria-label="Redo"><Redo2 /></button><button className="button ghost" onClick={() => { setExportTab(tab === "mockup" || editorMode === "animation" ? "mockup" : "image"); setMockupExportOpen(true); }}><ImageDown /> Export</button><button className="button primary" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button primary" onClick={() => setSaveOpen(true)}><Save /> Save recipe</button></div></header>
     <section className="workspace">
-      <nav className={`icon-rail ${editorMode === "animation" ? "mode-disabled" : ""}`} aria-label="Shader controls">{tabs.map(({ id, label, icon: Icon }) => <button key={id} disabled={editorMode === "animation"} className={`rail-tab ${tab === id ? "active" : ""}`} onClick={() => { if (id === "export") { setExportTab(tab === "mockup" || editorMode === "animation" ? "mockup" : "image"); setMockupExportOpen(true); return; } setTab(id); }} aria-label={label}><Icon size={19} strokeWidth={1.8} /><span>{label}</span></button>)}</nav>
-      <aside className={`inspector ${tab === "mockup" && editorMode === "animation" ? "mode-disabled" : ""}`}><div className="inspector-scroll">
+      <nav className={`icon-rail ${editorMode === "animation" ? "mode-disabled" : ""}`} aria-label="Shader controls">{tabs.map(({ id, label, icon: Icon }) => <button key={id} disabled={editorMode === "animation"} className={`rail-tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)} aria-label={label}><Icon size={19} strokeWidth={1.8} /><span>{label}</span></button>)}</nav>
+      <aside className={`inspector ${tab === "mockup" && editorMode === "animation" ? "mode-disabled" : ""}`}>{tab !== "presets" && <div className={`inspector-scroll ${tab === "visuals" ? "inspector-scroll-visuals" : "scroll-fade scroll-fade-y scroll-fade-6 no-scrollbar"}`}>
+        {tab === "visuals" && <VisualsPanel recipe={recipe} activeLabel={activeLabel} selectedTheme={selectedTheme} setSelectedTheme={setSelectedTheme} onChange={change} onApplyTheme={applyTheme} onRandomize={randomizePalette} savedPalettes={savedPalettes} paletteName={paletteName} setPaletteName={setPaletteName} onSavePalette={saveCurrentPalette} onDeletePalette={deleteSavedPalette} onSelectPreset={selectPreset} />}
         {tab === "mockup" && <div className="editor-mode-switch" role="group" aria-label="Mockup editor mode"><button className={editorMode === "mockup" ? "active" : ""} onClick={() => setEditorMode("mockup")}>Mockup</button><button className={editorMode === "animation" ? "active" : ""} onClick={openAnimation} disabled={!basePresetId && !mockup.media} title={!basePresetId && !mockup.media ? "Upload media or choose a mockup preset first" : undefined}>Animation <Badge variant="secondary">Beta</Badge></button></div>}
         {tab === "mockup" && <section className="output-frame-control"><div><span className="section-label">Output frame</span><p>Canvas, camera, animation, and export</p></div><div className="output-frame-grid">{outputFrames.map((frame) => <button key={frame.aspect} className={outputAspect === frame.aspect ? "selected" : ""} onClick={() => setOutputFrame(frame.aspect)} aria-pressed={outputAspect === frame.aspect}><i className={`output-frame-shape ratio-${frame.aspect.replace(":", "-")}`} /><span>{frame.aspect}</span><small>{frame.label}</small></button>)}</div></section>}
-        {tab === "style" && <div className="panel-content"><div className="panel-title"><div><h2>Shader styles</h2><p className="helper">Exact, fixed-frame PNG previews of each base shader.</p></div></div>{presetGroups.map((group) => <section className="preset-group" key={group.title}><h3>{group.title}</h3><div className="preset-grid">{group.items.map(([name, style]) => <button key={name} onClick={() => selectPreset(name, style)} className={`preset-card ${recipe.style === style ? "selected" : ""}`}><ShaderThumbnail style={style} /><span>{name}</span></button>)}</div></section>)}<section className="control-section"><h3>Character</h3><Slider label="Intensity" value={recipe.intensity} onChange={(intensity) => change({ intensity })} /><Slider label="Zoom" value={recipe.zoom} min={.5} max={2} unit="×" onChange={(zoom) => change({ zoom })} /><Slider label="Warp" value={recipe.warp} onChange={(warp) => change({ warp })} /><Slider label="Contrast" value={recipe.contrast} onChange={(contrast) => change({ contrast })} /><div className="button-pair"><button className="button ghost" onClick={() => change({ seed: Math.floor(Math.random() * 100000) })}><WandSparkles /> Reseed</button><button className="button ghost" onClick={() => change({ intensity: defaultRecipe.intensity, zoom: defaultRecipe.zoom, warp: defaultRecipe.warp, contrast: defaultRecipe.contrast, seed: defaultRecipe.seed })}><RefreshCcw /> Reset</button></div></section><section className="control-section"><h3>Frame</h3><Slider label="Rotate" value={recipe.rotate} min={-3.14} max={3.14} step={.01} unit=" rad" onChange={(rotate) => change({ rotate })} /><Slider label="Offset X" value={recipe.offsetX} min={-1} max={1} onChange={(offsetX) => change({ offsetX })} /><Slider label="Offset Y" value={recipe.offsetY} min={-1} max={1} onChange={(offsetY) => change({ offsetY })} /></section></div>}
-        {tab === "palette" && <PalettePanel recipe={recipe} selectedTheme={selectedTheme} setSelectedTheme={setSelectedTheme} onChange={change} onApplyTheme={applyTheme} onRandomize={randomizePalette} savedPalettes={savedPalettes} paletteName={paletteName} setPaletteName={setPaletteName} onSavePalette={saveCurrentPalette} onDeletePalette={deleteSavedPalette} />}
-        {tab === "surface" && <div className="panel-content"><h2>Surface</h2><p className="helper">Control depth, texture, and contrast across the full shader field.</p><Slider label="Intensity" value={recipe.intensity} onChange={(intensity) => change({ intensity })} /><Slider label="Zoom" value={recipe.zoom} min={.5} max={2} unit="×" onChange={(zoom) => change({ zoom })} /><Slider label="Warp" value={recipe.warp} onChange={(warp) => change({ warp })} /><Slider label="Contrast" value={recipe.contrast} onChange={(contrast) => change({ contrast })} /><Slider label="Grain" value={recipe.grain} max={.12} onChange={(grain) => change({ grain })} /></div>}
-        {tab === "motion" && <div className="panel-content"><h2>Movement</h2><div className="switch-row"><span>Animate</span><button className={`switch ${recipe.animate ? "on" : ""}`} onClick={() => change({ animate: !recipe.animate })} aria-pressed={recipe.animate}><i /></button></div><Slider label="Speed" value={recipe.speed} min={0} max={3} unit="×" onChange={(speed) => change({ speed })} /><Slider label="Drift" value={recipe.drift} onChange={(drift) => change({ drift })} /><div className="switch-row"><span>Reverse</span><button className={`switch ${recipe.reverse ? "on" : ""}`} onClick={() => change({ reverse: !recipe.reverse })} aria-pressed={recipe.reverse}><i /></button></div><p className="helper">Drift controls how far the whole field wanders.</p></div>}
-        {tab === "cursor" && <div className="panel-content"><h2>Interaction</h2>{isPaperStyle(recipe.style) && <p className="helper">Paper Design shaders respond through offset and rotation — the same controls as native shaders, mapped to each component&apos;s transform props.</p>}<div className="switch-row"><span>React to cursor</span><button className={`switch ${recipe.cursorEnabled ? "on" : ""}`} onClick={() => change({ cursorEnabled: !recipe.cursorEnabled })} aria-pressed={recipe.cursorEnabled}><i /></button></div><div className="section-label">Effect</div><div className="effect-grid">{(["push", "repel", "swirl", "ripple", "spotlight"] as CursorEffect[]).map((effect) => <button key={effect} className={recipe.cursorEffect === effect ? "selected" : ""} onClick={() => change({ cursorEffect: effect })}>{effect}</button>)}</div><Slider label="Strength" value={recipe.cursorStrength} onChange={(cursorStrength) => change({ cursorStrength })} /><Slider label="Radius" value={recipe.cursorRadius} min={.15} max={1} onChange={(cursorRadius) => change({ cursorRadius })} /><p className="helper">{recipe.cursorEffect === "swirl" ? "Twists the pattern around the pointer." : "Moves the shader field with the pointer."}</p><button className="button wide ghost" onClick={() => change({ cursorStrength: defaultRecipe.cursorStrength, cursorRadius: defaultRecipe.cursorRadius })}><RefreshCcw /> Reset cursor</button></div>}
         {tab === "mockup" && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid">{(["browser", "glass", "border", "inset", "none"] as MockupFrame[]).map((frame) => <button key={frame} onClick={() => updateMockup({ frame })} className={mockup.frame === frame ? "selected" : ""}><i className={`frame-sample ${frame}`} /><span>{frame === "none" ? "Clean" : frame}</span></button>)}</div><div className="section-label">Border</div><div className="mockup-segment"><button onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment"><button onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
-      </div>{tab === "presets" && <div className="presets-panel"><div className="presets-heading"><span className="eyebrow">PRESET LIBRARY</span><h2>Presets</h2><p>App defaults and your saved shader looks, ready to remix.</p></div>{availablePresets.length ? <><label className="preset-search"><Search /><input value={presetSearch} onChange={(event) => setPresetSearch(event.target.value)} placeholder="Search presets" aria-label="Search presets" />{presetSearch && <button type="button" onClick={() => setPresetSearch("")} aria-label="Clear preset search"><X /></button>}</label><div className="preset-library"><AnimatePresence initial={false} mode="popLayout">{filteredSaved.map((item, index) => <motion.button layout key={item.id} onClick={() => setRecipe(item)} aria-label={`Open preset ${item.name}`} initial={{ opacity: 0, y: 12, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: .985 }} transition={{ duration: .22, delay: Math.min(index * .025, .14), ease: [0.22, 1, 0.36, 1] }}><SavedRecipePreview recipe={item} /><span><b>{item.name}</b><em>{styleNames[item.style] ?? "Custom look"}</em></span></motion.button>)}</AnimatePresence>{!filteredSaved.length && <motion.p className="preset-search-empty" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>No presets match "{presetSearch}".</motion.p>}</div></> : <div className="presets-empty"><div className="presets-empty-icon"><WandSparkles /></div><h3>No presets yet</h3><p>Build a look in Styles, then save it here for your next project.</p><button className="button primary" onClick={() => setTab("style")}><WandSparkles /> Explore styles</button></div>}</div>}{tab === "surface" && <div className="surface-blur-inline"><div className="section-label">Focus</div><Slider label="Blur" value={recipe.blur ?? 0} max={20} step={.25} unit="px" onChange={(blur) => change({ blur })} /></div>}<div className="local-recipes"><div className="section-label">Local recipes</div>{saved.length ? saved.slice(0, 3).map((item) => <button key={item.id} onClick={() => setRecipe(item)}>{item.name}<ChevronDown /></button>) : <span>Saved looks appear here.</span>}</div></aside>
+      </div>}{tab === "presets" && <div className="presets-panel scroll-fade scroll-fade-y scroll-fade-6 no-scrollbar"><div className="presets-heading"><span className="eyebrow">PRESET LIBRARY</span><h2>Presets</h2><p>App defaults and your saved shader looks, ready to remix.</p></div>{availablePresets.length ? <><label className="preset-search"><Search /><input value={presetSearch} onChange={(event) => setPresetSearch(event.target.value)} placeholder="Search presets" aria-label="Search presets" />{presetSearch && <button type="button" onClick={() => setPresetSearch("")} aria-label="Clear preset search"><X /></button>}</label><div className="preset-library"><AnimatePresence initial={false} mode="popLayout">{filteredSaved.map((item, index) => <motion.button layout key={item.id} onClick={() => setRecipe(item)} aria-label={`Open preset ${item.name}`} initial={{ opacity: 0, y: 12, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: .985 }} transition={{ duration: .22, delay: Math.min(index * .025, .14), ease: [0.22, 1, 0.36, 1] }}><SavedRecipePreview recipe={item} /><span><b>{item.name}</b><em>{styleNames[item.style] ?? "Custom look"}</em></span></motion.button>)}</AnimatePresence>{!filteredSaved.length && <motion.p className="preset-search-empty" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>No presets match "{presetSearch}".</motion.p>}</div></> : <div className="presets-empty"><div className="presets-empty-icon"><WandSparkles /></div><h3>No presets yet</h3><p>Build a look in Visuals, then save it here for your next project.</p><button className="button primary" onClick={() => setTab("visuals")}><WandSparkles /> Tune visuals</button></div>}</div>}<div className="local-recipes"><div className="section-label">Local recipes</div>{saved.length ? saved.slice(0, 3).map((item) => <button key={item.id} onClick={() => setRecipe(item)}>{item.name}<ChevronDown /></button>) : <span>Saved looks appear here.</span>}</div></aside>
 {tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div ref={mockupStageRef} className={`mockup-stage frame-${mockup.frame}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, visibility: mockup.visible ? "visible" : "hidden" }}><div className="browser-bar"><i /><i /><i /><span>your-product.com</span></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <div className="mockup-demo"><span>THE NEXT RELEASE</span><h1>Make the work<br />feel inevitable.</h1><p>Your product, framed by a live visual system.</p><b>Explore release notes <span>→</span></b></div>}</div></div><aside className="camera-inspector"><div className="camera-tabs"><button className={cameraMode === "zoom" ? "active" : ""} onClick={() => setCameraMode("zoom")}>Zoom</button><button className={cameraMode === "tilt" ? "active" : ""} onClick={() => setCameraMode("tilt")}>Tilt</button></div><div ref={cameraPadRef} className={`camera-pad ${cameraMode === "tilt" ? "tilt-preview" : "zoom-preview"}`} onPointerDown={moveCamera} onPointerMove={(event) => event.buttons === 1 && moveCamera(event)} role="application" aria-label="Camera positioning pad">{cameraMode === "zoom" && <CameraPadScene recipe={recipe} mockup={mockup} geometry={cameraGeometry} camera={mockup} />}{cameraMode === "tilt" && <div className="camera-pad-card" style={{ transform: `translate(-50%, -50%) perspective(280px) rotateX(${mockup.tiltX}deg) rotateY(${mockup.tiltY}deg) rotateZ(${mockup.rotate}deg) scale(${.65 + mockup.scale * .18})` }} />}<span className="camera-cross horizontal" /><span className="camera-cross vertical" /><i className="camera-handle" style={{ left: `${cameraMode === "zoom" ? getCameraFrame(mockup, cameraGeometry).cropCenterX : 50 + Math.max(-45, Math.min(45, mockup.tiltY)) * 1.1}${cameraMode === "zoom" ? "px" : "%"}`, top: `${cameraMode === "zoom" ? getCameraFrame(mockup, cameraGeometry).cropCenterY : 50 - Math.max(-45, Math.min(45, mockup.tiltX)) * 1.1}${cameraMode === "zoom" ? "px" : "%"}` }} /><span className="tilt-preview-label">Tilt preview</span></div><Slider label={cameraMode === "zoom" ? "Zoom" : "Tilt"} value={cameraMode === "zoom" ? mockup.scale : mockup.tiltY} min={cameraMode === "zoom" ? .45 : -12} max={cameraMode === "zoom" ? 4 : 12} step={.01} unit={cameraMode === "zoom" ? "×" : "°"} onChange={(value) => updateMockup(cameraMode === "zoom" ? { scale: value } : { tiltY: value })} /><div className="section-label camera-label">Camera presets</div><div className="layout-presets">{mockupPresets.map((preset) => <button key={preset.id} onClick={() => useMockupPreset(preset)} className={`layout-preset ${preset.id}`}><CameraPresetPreview recipe={recipe} mockup={mockup} geometry={cameraGeometry} preset={preset} />{preset.id === "hero" && <b>Full view</b>}<em>{preset.label}</em></button>)}</div></aside></>}
         {tab === "mockup" && editorMode === "animation" && <>
          <aside className="motion-inspector">
