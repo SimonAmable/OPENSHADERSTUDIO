@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, PointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, PointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import {
   Braces, Check, ChevronDown, CircleHelp, Code2, Copy, Download, Droplets, Eye,
@@ -18,6 +18,7 @@ type CameraMode = "zoom" | "tilt";
 
 type MockupSettings = {
   media: string | null;
+  mediaType: "image" | "video" | null;
   frame: MockupFrame;
   radius: number;
   shadow: number;
@@ -236,7 +237,7 @@ const tabs: { id: Tab; label: string; icon: typeof SparklesIcon }[] = [
   { id: "cursor", label: "Cursor", icon: Mouse01Icon }, { id: "code", label: "Code", icon: CodeSquareIcon }, { id: "mockup", label: "Mockup", icon: MagicWand01Icon },
 ];
 
-const mockupPresets: { id: string; label: string; settings: Omit<MockupSettings, "media" | "frame" | "radius" | "shadow" | "visible"> }[] = [
+const mockupPresets: { id: string; label: string; settings: Omit<MockupSettings, "media" | "mediaType" | "frame" | "radius" | "shadow" | "visible"> }[] = [
   { id: "hero", label: "Hero focus", settings: { scale: 1.02, x: 8, y: -4, tiltX: 0, tiltY: -5, rotate: 0 } },
   { id: "float", label: "Soft float", settings: { scale: .82, x: 0, y: -2, tiltX: 4, tiltY: -9, rotate: -3 } },
   { id: "left", label: "Left stage", settings: { scale: .73, x: -22, y: 5, tiltX: 0, tiltY: 8, rotate: 1 } },
@@ -325,7 +326,7 @@ export function ShaderStudio() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportTab, setExportTab] = useState<ExportTab>("image");
   const [selectedTheme, setSelectedTheme] = useState<string>(companyThemes[0].name);
-  const [mockup, setMockup] = useState<MockupSettings>({ media: null, frame: "browser", radius: 20, shadow: 40, scale: .82, x: 0, y: 0, tiltX: 0, tiltY: -6, rotate: 0, visible: true });
+  const [mockup, setMockup] = useState<MockupSettings>({ media: null, mediaType: null, frame: "browser", radius: 20, shadow: 40, scale: .82, x: 0, y: 0, tiltX: 0, tiltY: -6, rotate: 0, visible: true });
   const [cameraMode, setCameraMode] = useState<CameraMode>("zoom");
   const mediaInput = useRef<HTMLInputElement>(null);
   const saved = useStudioStore((state) => state.saved);
@@ -387,17 +388,19 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   const save = () => { const item = { ...recipe, id: crypto.randomUUID(), name: saveName.trim() || "Untitled recipe" }; saveRecipe(item); setSaveOpen(false); };
   const activeLabel = useMemo(() => styleNames[recipe.style] ?? recipe.name, [recipe.style, recipe.name]);
   const updateMockup = (update: Partial<MockupSettings>) => setMockup((current) => ({ ...current, ...update }));
-  const loadMockupMedia = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => updateMockup({ media: String(reader.result) }); reader.readAsDataURL(file); };
-  const useMockupPreset = (preset: typeof mockupPresets[number]) => { updateMockup(preset.settings); setToast(`${preset.label} layout applied`); };
+  const loadFile = (file: File) => { if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) { setToast("Choose an image or video"); return; } const reader = new FileReader(); reader.onload = () => updateMockup({ media: String(reader.result), mediaType: file.type.startsWith("video/") ? "video" : "image" }); reader.readAsDataURL(file); };
+  const loadMockupMedia = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) loadFile(file); };
+  const handleDrop = (event: DragEvent<HTMLElement>) => { event.preventDefault(); const file = event.dataTransfer.files?.[0]; if (file) loadFile(file); };
+  const useMockupPreset = (preset: typeof mockupPresets[number]) => { updateMockup({ ...preset.settings, x: 0, y: 0 }); change({ offsetX: preset.settings.x / 56, offsetY: preset.settings.y / 42 }); setToast(`${preset.label} camera preset applied`); };
   const moveCamera = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     const px = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
     const py = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
-    if (cameraMode === "zoom") updateMockup({ x: Math.round((px - .5) * 56), y: Math.round((py - .5) * 42) });
+    if (cameraMode === "zoom") change({ offsetX: (px - .5) * 1.1, offsetY: (py - .5) * .9 });
     else updateMockup({ tiltY: Math.round((px - .5) * 24), tiltX: Math.round((.5 - py) * 18) });
   };
 
-  return <main className="studio-shell">
+  return <main className="studio-shell" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
     <header className="topbar"><div className="brand"><span className="brand-mark">S</span><span>SHADER STUDIO</span></div><div className="top-actions"><button className="icon-button" onClick={undo} disabled={!history.length} aria-label="Undo"><Undo2 /></button><button className="icon-button" onClick={redo} disabled={!future.length} aria-label="Redo"><Redo2 /></button><button className="button ghost" onClick={() => { setExportTab("image"); setExportOpen(true); }}><ImageDown /> Export</button><button className="button primary" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button primary" onClick={() => setSaveOpen(true)}><Save /> Save recipe</button></div></header>
     <section className="workspace">
       <nav className="icon-rail" aria-label="Shader controls">{tabs.map(({ id, label, icon: Icon }) => <button key={id} className={`rail-tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)} aria-label={label}><HugeiconsIcon icon={Icon} size={23} strokeWidth={1.6} /><span>{label}</span></button>)}</nav>
