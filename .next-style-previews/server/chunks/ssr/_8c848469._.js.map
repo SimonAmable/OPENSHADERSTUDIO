@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/simon/Documents/gpt-sites-test/app/layout.tsx"],"sourcesContent":["import type { Metadata } from \"next\";\nimport \"./globals.css\";\n\nexport const metadata: Metadata = {\n  title: \"Shader Studio\",\n  description: \"Create, tune, and export interactive WebGL shaders.\",\n  icons: {\n    icon: \"/favicon.ico\",\n    apple: \"/apple-icon.png\",\n  },\n};\n\nexport default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {\n  return <html lang=\"en\"><body>{children}</body></html>;\n}\n"],"names":[],"mappings":";;;;;;;;;AAGO,MAAM,WAAqB;IAChC,OAAO;IACP,aAAa;IACb,OAAO;QACL,MAAM;QACN,OAAO;IACT;AACF;AAEe,SAAS,WAAW,EAAE,QAAQ,EAA2C;IACtF,qBAAO,8OAAC;QAAK,MAAK;kBAAK,cAAA,8OAAC;sBAAM;;;;;;;;;;;AAChC","debugId":null}},
+    {"offset": {"line": 41, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/simon/Documents/gpt-sites-test/node_modules/next/src/server/route-modules/app-page/vendored/rsc/react-jsx-dev-runtime.ts"],"sourcesContent":["module.exports = (\n  require('../../module.compiled') as typeof import('../../module.compiled')\n).vendored['react-rsc']!.ReactJsxDevRuntime\n"],"names":["module","exports","require","vendored","ReactJsxDevRuntime"],"mappings":"AAAAA,OAAOC,OAAO,GACZC,QAAQ,4HACRC,QAAQ,CAAC,YAAY,CAAEC,kBAAkB","ignoreList":[0],"debugId":null}}]
+}

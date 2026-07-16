@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Only"
+  short_description: "Run TypeScript checks or lint only."
+  default_prompt: "Verify this repository with TypeScript or lint without implementing changes."
