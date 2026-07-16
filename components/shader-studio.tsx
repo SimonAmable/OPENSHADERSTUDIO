@@ -713,6 +713,67 @@ function SourceSurface({ title, helper, source, onChange, status, footer }: { ti
   return <div className="code-surface"><div className="source-heading"><div><h2>{title}</h2><p className="helper">{helper}</p></div><Code2 /></div><textarea value={source} onChange={(event) => onChange?.(event.target.value)} readOnly={!onChange} spellCheck={false} aria-label={`${title} source editor`} />{status}{footer && <div className="source-actions">{footer}</div>}</div>;
 }
 
+function exportPreviewAspect(aspect: VideoExportSettings["aspect"]) {
+  switch (aspect) {
+    case "16:9": return "16 / 9";
+    case "1:1": return "1";
+    case "9:16": return "9 / 16";
+    default: {
+      const value: never = aspect;
+      throw new Error(`Unhandled export aspect: ${value}`);
+    }
+  }
+}
+
+function shaderOutputSize(aspect: VideoExportSettings["aspect"], height: number) {
+  const [ratioWidth, ratioHeight] = aspect.split(":").map(Number);
+  return { width: Math.round(height * ratioWidth / ratioHeight / 2) * 2, height };
+}
+
+function loopFrameIndexes(forwardFrames: number, loop: boolean) {
+  const indexes = Array.from({ length: forwardFrames }, (_, index) => index);
+  return loop ? [...indexes, ...indexes.slice(0, -1).reverse()] : indexes;
+}
+
+function loopExportFrameCount(settings: VideoExportSettings) {
+  const forwardFrames = settings.duration * settings.fps;
+  return settings.loop ? forwardFrames * 2 - 1 : forwardFrames;
+}
+
+function loopExportDuration(settings: VideoExportSettings) {
+  return loopExportFrameCount(settings) / settings.fps;
+}
+
+function ExportShaderPreview({ recipe, aspect }: { recipe: Recipe; aspect: VideoExportSettings["aspect"] }) {
+  return <div className="export-preview" style={{ "--export-preview-aspect": exportPreviewAspect(aspect) } as CSSProperties}><ShaderCanvas recipe={recipe} paused={false} onError={() => undefined} /></div>;
+}
+
+function ExportAspectSelect({ value, onChange }: { value: VideoExportSettings["aspect"]; onChange: (aspect: VideoExportSettings["aspect"]) => void }) {
+  return <label>Aspect<select value={value} onChange={(event) => onChange(event.target.value as VideoExportSettings["aspect"])}><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="9:16">9:16</option></select></label>;
+}
+
+function ExportResolutionSelect({ value, onChange }: { value: VideoExportSettings["height"]; onChange: (height: VideoExportSettings["height"]) => void }) {
+  return <label>Resolution<select value={value} onChange={(event) => onChange(Number(event.target.value) as VideoExportSettings["height"])}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option></select></label>;
+}
+
+function ImageExportPanel({ recipe, settings, onSettingsChange, onExport, description }: { recipe: Recipe; settings: VideoExportSettings; onSettingsChange: (update: Partial<VideoExportSettings>) => void; onExport: () => void; description: string }) {
+  const size = shaderOutputSize(settings.aspect, settings.height);
+  return <div className="export-image video-export"><ExportShaderPreview recipe={recipe} aspect={settings.aspect} /><div className="video-controls"><ExportAspectSelect value={settings.aspect} onChange={(aspect) => onSettingsChange({ aspect })} /><ExportResolutionSelect value={settings.height} onChange={(height) => onSettingsChange({ height })} /><p className="video-note">{size.width} × {size.height} px · {description}</p><button type="button" className="button primary wide" onClick={onExport}><ImageDown /> Download PNG</button></div></div>;
+}
+
+function VideoLoopToggle({ settings, onSettingsChange }: { settings: VideoExportSettings; onSettingsChange: (update: Partial<VideoExportSettings>) => void }) {
+  return <div className="loop-row"><div><b>Ping-pong loop</b><span>{settings.loop ? `Forward + reverse · ${loopExportDuration(settings).toFixed(1)} s` : "Export one forward pass"}</span></div><button type="button" className={`switch ${settings.loop ? "on" : ""}`} onClick={() => onSettingsChange({ loop: !settings.loop })} aria-pressed={settings.loop} aria-label="Export as a reverse loop"><i /></button></div>;
+}
+
+function FullVideoExportPanel({ recipe, settings, onSettingsChange, onExport, videoProgress }: { recipe: Recipe; settings: VideoExportSettings; onSettingsChange: (update: Partial<VideoExportSettings>) => void; onExport: () => void; videoProgress: number | null }) {
+  const size = shaderOutputSize(settings.aspect, settings.height);
+  return <div className="video-export"><ExportShaderPreview recipe={recipe} aspect={settings.aspect} /><div className="video-controls"><ExportAspectSelect value={settings.aspect} onChange={(aspect) => onSettingsChange({ aspect })} /><label>Format<select value={settings.mimeType} onChange={(event) => onSettingsChange({ mimeType: event.target.value })}>{videoFormats.map((format) => <option key={format.value} value={format.value} disabled={typeof MediaRecorder !== "undefined" && !MediaRecorder.isTypeSupported(format.value)}>{format.label}{typeof MediaRecorder !== "undefined" && !MediaRecorder.isTypeSupported(format.value) ? " — unavailable" : ""}</option>)}</select></label><ExportResolutionSelect value={settings.height} onChange={(height) => onSettingsChange({ height })} /><label>Frame rate<select value={settings.fps} onChange={(event) => onSettingsChange({ fps: Number(event.target.value) as VideoExportSettings["fps"] })}><option value={24}>24 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option></select></label><label className="video-duration">Duration<select value={settings.duration} onChange={(event) => onSettingsChange({ duration: Number(event.target.value) as VideoExportSettings["duration"] })}><option value={2}>2 s</option><option value={3}>3 s</option><option value={5}>5 s</option><option value={8}>8 s</option></select></label><VideoLoopToggle settings={settings} onSettingsChange={onSettingsChange} /><p className="video-note">{size.width} × {size.height} px · {loopExportFrameCount(settings)} exact frames. Cursor interactions are excluded from exports.</p><button type="button" className="button primary wide" onClick={onExport} disabled={videoProgress !== null}><Video /> {videoProgress === null ? "Export video" : `Rendering ${Math.round(videoProgress * 100)}%`}</button></div></div>;
+}
+
+function CompactVideoExportPanel({ recipe, settings, onSettingsChange, onExport, videoProgress }: { recipe: Recipe; settings: VideoExportSettings; onSettingsChange: (update: Partial<VideoExportSettings>) => void; onExport: () => void; videoProgress: number | null }) {
+  return <div className="video-export"><ExportShaderPreview recipe={recipe} aspect={settings.aspect} /><div className="video-controls"><ExportAspectSelect value={settings.aspect} onChange={(aspect) => onSettingsChange({ aspect })} /><ExportResolutionSelect value={settings.height} onChange={(height) => onSettingsChange({ height })} /><label className="video-duration">Duration<select value={settings.duration} onChange={(event) => onSettingsChange({ duration: Number(event.target.value) as VideoExportSettings["duration"] })}><option value={2}>2 s</option><option value={3}>3 s</option><option value={5}>5 s</option><option value={8}>8 s</option></select></label><VideoLoopToggle settings={settings} onSettingsChange={onSettingsChange} /><button type="button" className="button primary wide" onClick={onExport} disabled={videoProgress !== null}><Video /> {videoProgress === null ? "Export video" : `Rendering ${Math.round(videoProgress * 100)}%`}</button></div></div>;
+}
+
 function hexToHsv(hex: string) { const [r, g, b] = hexToRgb(hex).map((value) => value / 255); const max = Math.max(r, g, b); const min = Math.min(r, g, b); const delta = max - min; const hue = delta === 0 ? 0 : max === r ? 60 * (((g - b) / delta) % 6) : max === g ? 60 * ((b - r) / delta + 2) : 60 * ((r - g) / delta + 4); return { h: (hue + 360) % 360, s: max === 0 ? 0 : delta / max, v: max }; }
 function hsvToHex(h: number, s: number, v: number) { const c = v * s; const x = c * (1 - Math.abs((h / 60) % 2 - 1)); const m = v - c; const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]; return `#${[r, g, b].map((value) => Math.round((value + m) * 255).toString(16).padStart(2, "0")).join("")}`; }
 function ShadcnColorPicker({ color, onChange }: { color: string; onChange: (color: string) => void }) {
@@ -805,6 +866,12 @@ export function ShaderStudio() {
     root.style.setProperty("--mockup-preview-media", mockup.mediaType === "image" && mockup.media ? `url("${mockup.media}")` : "none");
     return () => { root.style.removeProperty("--mockup-preview-media"); };
   }, [mockup.media, mockup.mediaType, mockup.rotate, mockup.scale, mockup.tiltX, mockup.tiltY]);
+  useEffect(() => {
+    const root = document.documentElement;
+    const [base, middle = base, highlight = middle] = recipe.palette;
+    root.style.setProperty("--camera-preset-backdrop", `radial-gradient(ellipse at 18% 30%, ${highlight} 0%, transparent 35%), radial-gradient(ellipse at 78% 72%, ${middle} 0%, transparent 44%), linear-gradient(135deg, ${base}, #050608 82%)`);
+    return () => { root.style.removeProperty("--camera-preset-backdrop"); };
+  }, [recipe.palette]);
   useEffect(() => { const stage = document.querySelector<HTMLElement>(".mockup-stage"); if (stage) stage.style.aspectRatio = mockupAspect === "auto" ? "" : mockupAspect; }, [mockupAspect]);
   useEffect(() => {
     if (tab !== "mockup") return;
@@ -1001,7 +1068,81 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     try { await navigator.clipboard.writeText(source); setCopied(true); setToast(label); window.setTimeout(() => setCopied(false), 1500); }
     catch { setToast("Couldn't copy — please try again"); }
   };
-  const exportPng = () => { const canvas = queryShaderCanvas(recipe.style); if (!canvas) return; const link = document.createElement("a"); link.download = `${recipe.name.toLowerCase().replaceAll(" ", "-")}.png`; link.href = canvas.toDataURL("image/png"); link.click(); };
+  const exportPng = () => {
+    const { width, height } = shaderOutputSize(videoSettings.aspect, videoSettings.height);
+    const download = (canvas: HTMLCanvasElement) => {
+      const link = document.createElement("a");
+      link.download = `${recipe.name.toLowerCase().replaceAll(" ", "-")}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      setToast("PNG exported");
+    };
+    try {
+      if (isPaperStyle(recipe.style)) {
+        const sourceCanvas = queryShaderCanvas(recipe.style);
+        if (!sourceCanvas) throw new Error("Shader preview is unavailable");
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Could not create export canvas");
+        context.drawImage(sourceCanvas, 0, 0, width, height);
+        download(canvas);
+        return;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const gl = canvas.getContext("webgl", { preserveDrawingBuffer: true });
+      if (!gl) throw new Error("WebGL is unavailable in this browser");
+      const compile = (type: number, source: string) => { const shader = gl.createShader(type)!; gl.shaderSource(shader, source); gl.compileShader(shader); if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || "Shader compile failed"); return shader; };
+      const vertex = compile(gl.VERTEX_SHADER, "attribute vec2 position; void main(){gl_Position=vec4(position,0.,1.);}");
+      const fragment = compile(gl.FRAGMENT_SHADER, recipe.glsl);
+      const program = gl.createProgram()!;
+      gl.attachShader(program, vertex);
+      gl.attachShader(program, fragment);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || "Shader link failed");
+      const position = gl.createBuffer()!;
+      gl.bindBuffer(gl.ARRAY_BUFFER, position);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      gl.viewport(0, 0, width, height);
+      gl.useProgram(program);
+      gl.enableVertexAttribArray(gl.getAttribLocation(program, "position"));
+      gl.vertexAttribPointer(gl.getAttribLocation(program, "position"), 2, gl.FLOAT, false, 0, 0);
+      const set1 = (name: string, value: number) => gl.uniform1f(gl.getUniformLocation(program, name), value);
+      gl.uniform2f(gl.getUniformLocation(program, "u_resolution"), width, height);
+      set1("u_time", 0);
+      gl.uniform2f(gl.getUniformLocation(program, "u_pointer"), .5, .5);
+      gl.uniform2f(gl.getUniformLocation(program, "u_velocity"), 0, 0);
+      const colors = [...recipe.palette];
+      while (colors.length < 5) colors.push(colors.at(-1) || "#000000");
+      gl.uniform3fv(gl.getUniformLocation(program, "u_colors"), colors.slice(0, 5).map(hexToRgb).flat());
+      set1("u_style", recipe.style);
+      set1("u_intensity", recipe.intensity);
+      set1("u_zoom", recipe.zoom);
+      set1("u_warp", recipe.warp);
+      set1("u_contrast", recipe.contrast);
+      set1("u_speed", recipe.speed);
+      set1("u_drift", recipe.drift);
+      set1("u_animate", recipe.animate ? 1 : 0);
+      set1("u_reverse", recipe.reverse ? 1 : 0);
+      set1("u_rotate", recipe.rotate);
+      set1("u_seed", recipe.seed);
+      set1("u_smooth_blend", recipe.smoothBlend ? 1 : 0);
+      set1("u_grain", recipe.grain);
+      gl.uniform2f(gl.getUniformLocation(program, "u_offset"), recipe.offsetX, recipe.offsetY);
+      set1("u_cursor_on", 0);
+      set1("u_cursor_effect", 0);
+      set1("u_cursor_strength", 0);
+      set1("u_cursor_radius", 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.finish();
+      download(canvas);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not export PNG");
+    }
+  };
   const exportAspect = () => outputAspect.split(":").map(Number) as [number, number];
   const mockupOutputSize = (height: number = videoSettings.height) => { const [ratioWidth, ratioHeight] = exportAspect(); return { width: Math.round(height * ratioWidth / ratioHeight / 2) * 2, height }; };
   const loadExportImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("Could not load mockup media")); image.src = src; });
@@ -1056,8 +1197,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
         const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: height >= 1080 ? 12_000_000 : height >= 720 ? 6_000_000 : 3_000_000 });
         const finished = new Promise<Blob>((resolve, reject) => { recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); }; recorder.onerror = () => reject(new Error("Video encoding failed")); recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType })); });
         const forwardFrames = videoSettings.duration * videoSettings.fps;
-        const indexes = Array.from({ length: forwardFrames }, (_, index) => index);
-        const frameIndexes = videoSettings.loop ? [...indexes, ...indexes.slice(1, -1).reverse()] : indexes;
+        const frameIndexes = loopFrameIndexes(forwardFrames, videoSettings.loop);
         recorder.start(); setVideoProgress(0);
         for (let index = 0; index < frameIndexes.length; index += 1) {
           setVideoProgress((index + 1) / frameIndexes.length);
@@ -1092,8 +1232,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
         set1("u_cursor_on", 0); set1("u_cursor_effect", 0); set1("u_cursor_strength", 0); set1("u_cursor_radius", 0); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.finish(); track.requestFrame?.();
       };
       const forwardFrames = videoSettings.duration * videoSettings.fps;
-      const indexes = Array.from({ length: forwardFrames }, (_, index) => index);
-      const frameIndexes = videoSettings.loop ? [...indexes, ...indexes.slice(1, -1).reverse()] : indexes;
+      const frameIndexes = loopFrameIndexes(forwardFrames, videoSettings.loop);
       recorder.start(); setVideoProgress(0);
       for (let index = 0; index < frameIndexes.length; index += 1) { renderFrame(frameIndexes[index] / videoSettings.fps); setVideoProgress((index + 1) / frameIndexes.length); await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); }
       recorder.stop(); const blob = await finished; stream.getTracks().forEach((item) => item.stop());
@@ -1343,8 +1482,8 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       <section className="canvas-area"><div className="canvas-frame"><ShaderCanvas recipe={recipe} paused={paused} onError={setError} /><div className="canvas-meta"><span className="live-dot" /> LIVE <b>{activeLabel}</b></div>{error && <div className="canvas-error"><CircleHelp /> Shader error — open Code to repair it.</div>}<div className="canvas-dock"><button data-tooltip="Create a completely new shader recipe" onClick={inspire}><CircleHelp /> Inspire</button><button data-tooltip="Keep the style and settings; choose new colours" onClick={recolour}><Droplets /> Recolour</button><button data-tooltip="Keep the style and colours; replace only the settings" onClick={remix}><WandSparkles /> Remix</button><button data-tooltip="Choose a new shader style while keeping the palette" onClick={restyle}><WandSparkles /> Restyle</button><button data-tooltip={paused ? "Resume the live preview" : "Pause the live preview"} onClick={() => setPaused((value) => !value)}>{paused ? <Play /> : <Pause />}{paused ? "Play" : "Pause"}</button></div></div></section>
     </section>
     {saveOpen && <div className="modal-backdrop" role="presentation"><div className="save-modal" role="dialog" aria-modal="true" aria-labelledby="save-title"><button className="close" onClick={() => setSaveOpen(false)} aria-label="Close"><X /></button><Sparkles /><h2 id="save-title">Save recipe</h2><p>Keep this shader configuration in this browser for later remixing.</p><input autoFocus value={saveName} onChange={(event) => setSaveName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && save()} /><button className="button primary wide" onClick={save}><Save /> Save locally</button></div></div>}
-    {exportOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-title"><button className="close" onClick={() => setExportOpen(false)} aria-label="Close"><X /></button><div className="export-header"><div><span className="eyebrow">READY TO SHIP</span><h2 id="export-title">Export shader</h2><p>Take the current look into your project in the format you need.</p></div><ImageDown /></div><div className="export-tabs" role="tablist">{(["image", "video", "prompt", "react", "glsl"] as ExportTab[]).map((item) => <button key={item} className={exportTab === item ? "active" : ""} onClick={() => setExportTab(item)} role="tab" aria-selected={exportTab === item}>{item === "image" ? "Image" : item === "video" ? "Animation" : item === "prompt" ? "Prompt" : item === "react" ? "React code" : "GLSL"}</button>)}</div>{exportTab === "image" && <div className="export-image"><div className="export-preview"><ShaderCanvas recipe={recipe} paused={false} onError={() => undefined} /></div><div><h3>High-resolution PNG</h3><p>Captures the current shader exactly as it appears in the live renderer.</p><button className="button primary wide" onClick={exportPng}><ImageDown /> Download PNG</button></div></div>}{exportTab === "video" && <div className="video-export"><div className="export-preview"><ShaderCanvas recipe={recipe} paused={false} onError={() => undefined} /></div><div className="video-controls"><label>Aspect<select value={videoSettings.aspect} onChange={(event) => updateVideoSettings({ aspect: event.target.value as VideoExportSettings["aspect"] })}><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="9:16">9:16</option></select></label><label>Format<select value={videoSettings.mimeType} onChange={(event) => updateVideoSettings({ mimeType: event.target.value })}>{videoFormats.map((format) => <option key={format.value} value={format.value} disabled={typeof MediaRecorder !== "undefined" && !MediaRecorder.isTypeSupported(format.value)}>{format.label}{typeof MediaRecorder !== "undefined" && !MediaRecorder.isTypeSupported(format.value) ? " — unavailable" : ""}</option>)}</select></label><label>Resolution<select value={videoSettings.height} onChange={(event) => updateVideoSettings({ height: Number(event.target.value) as VideoExportSettings["height"] })}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option></select></label><label>Frame rate<select value={videoSettings.fps} onChange={(event) => updateVideoSettings({ fps: Number(event.target.value) as VideoExportSettings["fps"] })}><option value={24}>24 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option></select></label><label className="video-duration">Duration<select value={videoSettings.duration} onChange={(event) => updateVideoSettings({ duration: Number(event.target.value) as VideoExportSettings["duration"] })}><option value={2}>2 s</option><option value={3}>3 s</option><option value={5}>5 s</option><option value={8}>8 s</option></select></label><div className="loop-row"><div><b>Ping-pong loop</b><span>{videoSettings.loop ? `Forward + reverse · ${(videoSettings.duration * 2 - 2 / videoSettings.fps).toFixed(1)} s` : "Export one forward pass"}</span></div><button className={`switch ${videoSettings.loop ? "on" : ""}`} onClick={() => updateVideoSettings({ loop: !videoSettings.loop })} aria-pressed={videoSettings.loop} aria-label="Export as a reverse loop"><i /></button></div><p className="video-note">{Math.round(videoSettings.height * ({ "16:9": 16 / 9, "1:1": 1, "9:16": 9 / 16 }[videoSettings.aspect]))} × {videoSettings.height} px · {videoSettings.loop ? videoSettings.duration * videoSettings.fps * 2 - 2 : videoSettings.duration * videoSettings.fps} exact frames. Cursor interactions are excluded from exports.</p><button className="button primary wide" onClick={exportVideo} disabled={videoProgress !== null}><Video /> {videoProgress === null ? "Export video" : `Rendering ${Math.round(videoProgress * 100)}%`}</button></div></div>}{exportTab === "prompt" && <SourceSurface title="Build prompt" helper="A complete implementation prompt generated from the active shader configuration." source={buildPrompt()} footer={<><button className="button primary wide" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button wide ghost" onClick={() => exportText(buildPrompt(), "shader-studio-prompt.txt", "text/plain")}><Download /> Download .txt</button></>} />}{exportTab === "react" && <SourceSurface title="React component" helper={isPaperStyle(recipe.style) ? "A Paper Design component configured with your current palette, motion, and surface settings." : "A self-contained recipe and fragment shader ready to paste into a client component."} source={reactCode} footer={<><button className="button primary wide" onClick={() => copyText(reactCode, "React component copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy React code"}</button><button className="button wide ghost" onClick={() => exportText(reactCode, "shader-studio-shader.ts", "text/plain")}><Download /> Download .ts</button></>} />}{exportTab === "glsl" && <SourceSurface title="Fragment GLSL" helper={isPaperStyle(recipe.style) ? "Paper Design shaders ship with internal GLSL. Use React export for production code." : "The exact fragment shader currently driving the preview."} source={glslExportSource} footer={<><button className="button primary wide" onClick={() => copyText(glslExportSource, isPaperStyle(recipe.style) ? "Paper props copied" : "GLSL copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : isPaperStyle(recipe.style) ? "Copy props" : "Copy GLSL"}</button><button className="button wide ghost" onClick={() => exportText(glslExportSource, isPaperStyle(recipe.style) ? "shader-studio-paper-props.json" : "shader-studio-shader.glsl", isPaperStyle(recipe.style) ? "application/json" : "text/plain")}><Download /> Download {isPaperStyle(recipe.style) ? ".json" : ".glsl"}</button></>} />}</div></div>}
-    {mockupExportOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal mockup-export-modal" role="dialog" aria-modal="true" aria-labelledby="mockup-export-title"><button className="close" onClick={() => setMockupExportOpen(false)} aria-label="Close"><X /></button><div className="export-header"><div><span className="eyebrow">READY TO SHIP</span><h2 id="mockup-export-title">Export shader</h2><p>Choose a shader-only or composed mockup output.</p></div><ImageDown /></div><div className="export-tabs" role="tablist"><button className={exportTab === "image" ? "active" : ""} onClick={() => setExportTab("image")}>Image</button><button className={exportTab === "video" ? "active" : ""} onClick={() => setExportTab("video")}>Animation</button><button className={exportTab === "mockup" ? "active" : ""} onClick={() => setExportTab("mockup")} disabled={!mockup.visible}>Mockup</button><button onClick={() => { setMockupExportOpen(false); setExportTab("prompt"); setExportOpen(true); }}>Prompt</button><button onClick={() => { setMockupExportOpen(false); setExportTab("react"); setExportOpen(true); }}>React code</button><button onClick={() => { setMockupExportOpen(false); setExportTab("glsl"); setExportOpen(true); }}>GLSL</button></div>{exportTab === "image" && <div className="export-image"><div className="export-preview"><ShaderCanvas recipe={recipe} paused={false} onError={() => undefined} /></div><div><h3>High-resolution PNG</h3><p>Captures the shader only.</p><button className="button primary wide" onClick={exportPng}><ImageDown /> Download PNG</button></div></div>}{exportTab === "video" && <div className="video-export"><div className="export-preview"><ShaderCanvas recipe={recipe} paused={false} onError={() => undefined} /></div><div className="video-controls"><label>Aspect<select value={videoSettings.aspect} onChange={(event) => updateVideoSettings({ aspect: event.target.value as VideoExportSettings["aspect"] })}><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="9:16">9:16</option></select></label><label>Resolution<select value={videoSettings.height} onChange={(event) => updateVideoSettings({ height: Number(event.target.value) as VideoExportSettings["height"] })}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option></select></label><button className="button primary wide" onClick={exportVideo} disabled={videoProgress !== null}><Video /> Export video</button></div></div>}{exportTab === "mockup" && <><div className="export-mode-toggle" role="tablist"><button className={mockupExportMode === "image" ? "active" : ""} onClick={() => setMockupExportMode("image")}>Image</button><button className={mockupExportMode === "video" ? "active" : ""} onClick={() => setMockupExportMode("video")}>Video</button></div><div className="mockup-export"><div className="export-preview mockup-export-preview"><ShaderCanvas recipe={recipe} paused={false} onError={() => undefined} /><div className={`mockup-export-card frame-${mockup.frame}`} style={{ borderRadius: mockup.radius, transform: `translate(${mockup.x / 2}%, ${mockup.y / 2}%) rotate(${mockup.rotate}deg) scale(${Math.max(.5, mockup.scale)})` }}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Mockup export preview" /> : <div className="mockup-demo"><h1>Your product</h1></div>}</div></div><div className="mockup-export-controls"><h3>{mockupExportMode === "image" ? "Mockup PNG" : "Animated mockup video"}</h3><label>Aspect<select value={videoSettings.aspect} onChange={(event) => updateVideoSettings({ aspect: event.target.value as VideoExportSettings["aspect"] })}><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="9:16">9:16</option></select></label>{mockupExportMode === "image" ? <><label>Resolution<select value={mockupImageHeight} onChange={(event) => setMockupImageHeight(Number(event.target.value) as 720 | 1080 | 1440)}><option value={720}>720p</option><option value={1080}>1080p</option><option value={1440}>1440p</option></select></label><button className="button primary wide" onClick={exportMockupImage}><ImageDown /> Download mockup PNG</button></> : <><label>Resolution<select value={videoSettings.height} onChange={(event) => updateVideoSettings({ height: Number(event.target.value) as VideoExportSettings["height"] })}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option></select></label><label>Duration<select value={videoSettings.duration} onChange={(event) => updateVideoSettings({ duration: Number(event.target.value) as VideoExportSettings["duration"] })}><option value={2}>2 s</option><option value={3}>3 s</option><option value={5}>5 s</option></select></label><button className="button primary wide" onClick={exportMockupVideo} disabled={videoProgress !== null}><Video /> Export mockup video</button></>}</div></div></>}</div></div>}
+    {exportOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-title"><button className="close" onClick={() => setExportOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><span className="eyebrow">READY TO SHIP</span><h2 id="export-title">Export shader</h2><p>Take the current look into your project in the format you need.</p></div><ImageDown /></div><div className="export-tabs" role="tablist">{(["image", "video", "prompt", "react", "glsl"] as ExportTab[]).map((item) => <button key={item} className={exportTab === item ? "active" : ""} onClick={() => setExportTab(item)} role="tab" aria-selected={exportTab === item}>{item === "image" ? "Image" : item === "video" ? "Animation" : item === "prompt" ? "Prompt" : item === "react" ? "React code" : "GLSL"}</button>)}</div></div><div className="export-modal-body">{exportTab === "image" && <ImageExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportPng} description="Cursor interactions are excluded from exports." />}{exportTab === "video" && <FullVideoExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportVideo} videoProgress={videoProgress} />}{exportTab === "prompt" && <SourceSurface title="Build prompt" helper="A complete implementation prompt generated from the active shader configuration." source={buildPrompt()} footer={<><button className="button primary wide" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button wide ghost" onClick={() => exportText(buildPrompt(), "shader-studio-prompt.txt", "text/plain")}><Download /> Download .txt</button></>} />}{exportTab === "react" && <SourceSurface title="React component" helper={isPaperStyle(recipe.style) ? "A Paper Design component configured with your current palette, motion, and surface settings." : "A self-contained recipe and fragment shader ready to paste into a client component."} source={reactCode} footer={<><button className="button primary wide" onClick={() => copyText(reactCode, "React component copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy React code"}</button><button className="button wide ghost" onClick={() => exportText(reactCode, "shader-studio-shader.ts", "text/plain")}><Download /> Download .ts</button></>} />}{exportTab === "glsl" && <SourceSurface title="Fragment GLSL" helper={isPaperStyle(recipe.style) ? "Paper Design shaders ship with internal GLSL. Use React export for production code." : "The exact fragment shader currently driving the preview."} source={glslExportSource} footer={<><button className="button primary wide" onClick={() => copyText(glslExportSource, isPaperStyle(recipe.style) ? "Paper props copied" : "GLSL copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : isPaperStyle(recipe.style) ? "Copy props" : "Copy GLSL"}</button><button className="button wide ghost" onClick={() => exportText(glslExportSource, isPaperStyle(recipe.style) ? "shader-studio-paper-props.json" : "shader-studio-shader.glsl", isPaperStyle(recipe.style) ? "application/json" : "text/plain")}><Download /> Download {isPaperStyle(recipe.style) ? ".json" : ".glsl"}</button></>} />}</div></div></div>}
+    {mockupExportOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal mockup-export-modal" role="dialog" aria-modal="true" aria-labelledby="mockup-export-title"><button className="close" onClick={() => setMockupExportOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><span className="eyebrow">READY TO SHIP</span><h2 id="mockup-export-title">Export shader</h2><p>Choose a shader-only or composed mockup output.</p></div><ImageDown /></div><div className="export-tabs" role="tablist"><button className={exportTab === "image" ? "active" : ""} onClick={() => setExportTab("image")}>Image</button><button className={exportTab === "video" ? "active" : ""} onClick={() => setExportTab("video")}>Animation</button><button className={exportTab === "mockup" ? "active" : ""} onClick={() => setExportTab("mockup")} disabled={!mockup.visible}>Mockup</button><button onClick={() => { setMockupExportOpen(false); setExportTab("prompt"); setExportOpen(true); }}>Prompt</button><button onClick={() => { setMockupExportOpen(false); setExportTab("react"); setExportOpen(true); }}>React code</button><button onClick={() => { setMockupExportOpen(false); setExportTab("glsl"); setExportOpen(true); }}>GLSL</button></div></div><div className="export-modal-body">{exportTab === "image" && <ImageExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportPng} description="Captures the shader only." />}{exportTab === "video" && <CompactVideoExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportVideo} videoProgress={videoProgress} />}{exportTab === "mockup" && <><div className="export-mode-toggle" role="tablist"><button className={mockupExportMode === "image" ? "active" : ""} onClick={() => setMockupExportMode("image")}>Image</button><button className={mockupExportMode === "video" ? "active" : ""} onClick={() => setMockupExportMode("video")}>Video</button></div><div className="mockup-export"><div className="export-preview mockup-export-preview" style={{ "--export-preview-aspect": exportPreviewAspect(videoSettings.aspect) } as CSSProperties}><ShaderCanvas recipe={recipe} paused={false} onError={() => undefined} /><div className={`mockup-export-card frame-${mockup.frame}`} style={{ borderRadius: mockup.radius, transform: `translate(${mockup.x / 2}%, ${mockup.y / 2}%) rotate(${mockup.rotate}deg) scale(${Math.max(.5, mockup.scale)})` }}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Mockup export preview" /> : <div className="mockup-demo"><h1>Your product</h1></div>}</div></div><div className="mockup-export-controls"><h3>{mockupExportMode === "image" ? "Mockup PNG" : "Animated mockup video"}</h3><label>Aspect<select value={videoSettings.aspect} onChange={(event) => updateVideoSettings({ aspect: event.target.value as VideoExportSettings["aspect"] })}><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="9:16">9:16</option></select></label>{mockupExportMode === "image" ? <><label>Resolution<select value={mockupImageHeight} onChange={(event) => setMockupImageHeight(Number(event.target.value) as 720 | 1080 | 1440)}><option value={720}>720p</option><option value={1080}>1080p</option><option value={1440}>1440p</option></select></label><button className="button primary wide" onClick={exportMockupImage}><ImageDown /> Download mockup PNG</button></> : <><label>Resolution<select value={videoSettings.height} onChange={(event) => updateVideoSettings({ height: Number(event.target.value) as VideoExportSettings["height"] })}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option></select></label><label>Duration<select value={videoSettings.duration} onChange={(event) => updateVideoSettings({ duration: Number(event.target.value) as VideoExportSettings["duration"] })}><option value={2}>2 s</option><option value={3}>3 s</option><option value={5}>5 s</option></select></label><button className="button primary wide" onClick={exportMockupVideo} disabled={videoProgress !== null}><Video /> Export mockup video</button></>}</div></div></>}</div></div></div>}
 
     {toast && <div className="studio-toast" role="status"><Check />{toast}</div>}
   </main>;
