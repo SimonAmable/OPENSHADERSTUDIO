@@ -1,0 +1,26 @@
+import type { RefObject } from "react";
+
+export type Tab = "presets" | "visuals" | "mockup";
+export type VisualSection = "style" | "palette" | "surface" | "motion" | "cursor";
+export type CursorEffect = "push" | "repel" | "swirl" | "ripple" | "spotlight";
+export type ExportTab = "image" | "video" | "mockup" | "prompt" | "react" | "glsl";
+export type MockupExportMode = "image" | "video";
+export type MockupChrome = "browser" | "none";
+export type MockupBorderStyle = "glass" | "border" | "inset" | "none";
+export type CameraMode = "zoom" | "tilt";
+export type CameraTool2D = "camera" | "rotation";
+export type CameraTool3D = "camera" | "tilt" | "roll";
+export type MockupAspect = "auto" | "16 / 9" | "4 / 3" | "1 / 1" | "9 / 16";
+export type EditorMode = "mockup" | "animation";
+export type OutputAspect = "16:9" | "1:1" | "4:5" | "9:16";
+export type AnimationClip = { id: string; label: string; presetId: string; start: number; duration: number; transition: number; easing: "ease" | "spring"; zoom: number; tilt: number; hold: number; springSpeed: number; targetX: number; targetY: number; targetTiltX: number; targetTiltY: number; targetRotate: number; cameraX: number; cameraY: number; exit: "base" | "next"; hidden: boolean };
+export type ClipClipboard = { clip: AnimationClip; mode: "copy" | "cut" };
+export type ClipMenuState = { clipId: string; x: number; y: number };
+export type VideoExportSettings = { aspect: "16:9" | "1:1" | "9:16"; height: 480 | 720 | 1080 | 1440; fps: 24 | 30 | 60; duration: 2 | 3 | 5 | 8; loop: boolean; mimeType: string };
+export type MockupSettings = { media: string | null; mediaType: "image" | "video" | null; chrome: MockupChrome; borderStyle: MockupBorderStyle; radius: number; shadow: number; scale: number; x: number; y: number; cameraX: number; cameraY: number; tiltX: number; tiltY: number; rotate: number; flipX?: boolean; flipY?: boolean; visible: boolean };
+export type CameraGeometry = { viewportWidth: number; viewportHeight: number; stageWidth: number; stageHeight: number; padWidth: number; padHeight: number };
+export type CameraFrame = { renderScale: number; panLimitX: number; panLimitY: number; cropWidth: number; cropHeight: number; cropCenterX: number; cropCenterY: number; previewScale: number };
+export type Recipe = { id: string; name: string; style: number; palette: string[]; intensity: number; zoom: number; warp: number; contrast: number; speed: number; drift: number; blur: number; animate: boolean; reverse: boolean; grain: number; rotate: number; offsetX: number; offsetY: number; seed: number; smoothBlend: boolean; cursorEnabled: boolean; cursorEffect: CursorEffect; cursorStrength: number; cursorRadius: number; glsl: string };
+export type SavedPalette = { id: string; name: string; colors: string[] };
+export type ThemeOption = { key: string; name: string; colors: string[]; deletable?: boolean };
+export type CameraPadRef = RefObject<HTMLDivElement | null>;
