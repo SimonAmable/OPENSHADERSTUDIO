@@ -31,7 +31,7 @@ const MIN_TRAVEL = .12;
 const EXIT_RESERVE = .5;
 const isApplePlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
 const modKey = isApplePlatform ? "⌘" : "Ctrl";
-type VideoExportSettings = { aspect: "16:9" | "1:1" | "9:16"; height: 480 | 720 | 1080; fps: 24 | 30 | 60; duration: 2 | 3 | 5 | 8; loop: boolean; mimeType: string };
+type VideoExportSettings = { aspect: "16:9" | "1:1" | "9:16"; height: 480 | 720 | 1080 | 1440; fps: 24 | 30 | 60; duration: 2 | 3 | 5 | 8; loop: boolean; mimeType: string };
 
 const videoFormats = [
   { value: "video/webm;codecs=vp9", label: "WebM (VP9)" },
@@ -95,6 +95,34 @@ function getCameraFrame(camera: Pick<MockupSettings, "scale" | "cameraX" | "came
     cropCenterX: Math.max(cropWidth / 2, Math.min(padWidth - cropWidth / 2, unclampedCenterX)),
     cropCenterY: Math.max(cropHeight / 2, Math.min(padHeight - cropHeight / 2, unclampedCenterY)),
     previewScale,
+  };
+}
+
+function getNavigatorCenter(event: PointerEvent<HTMLDivElement>, frame: CameraFrame, box: DOMRect) {
+  return {
+    x: Math.max(frame.cropWidth / 2, Math.min(box.width - frame.cropWidth / 2, event.clientX - box.left)),
+    y: Math.max(frame.cropHeight / 2, Math.min(box.height - frame.cropHeight / 2, event.clientY - box.top)),
+  };
+}
+
+function getPanoramaCameraFrame(camera: Pick<MockupSettings, "scale" | "x" | "y" | "cameraX" | "cameraY">, geometry: CameraGeometry): CameraFrame {
+  const frame = getCameraFrame(camera, geometry);
+  const { viewportWidth, viewportHeight, stageWidth, stageHeight, padWidth, padHeight } = geometry;
+  if (!viewportWidth || !viewportHeight || !stageWidth || !stageHeight) return frame;
+  // The panorama is intentionally fixed. Its crop map must use that fixed
+  // scale, while the crop itself still follows the real canvas camera.
+  const panoramaScale = Math.min(padWidth * .78 / stageWidth, padHeight * .78 / stageHeight);
+  const cropWidth = Math.min(padWidth, viewportWidth / frame.renderScale * panoramaScale);
+  const cropHeight = Math.min(padHeight, viewportHeight / frame.renderScale * panoramaScale);
+  const sceneCenterX = (-camera.x / 100 * viewportWidth + camera.cameraX / 50 * frame.panLimitX) / frame.renderScale;
+  const sceneCenterY = (-camera.y / 100 * viewportHeight + camera.cameraY / 50 * frame.panLimitY) / frame.renderScale;
+  return {
+    ...frame,
+    cropWidth,
+    cropHeight,
+    cropCenterX: Math.max(cropWidth / 2, Math.min(padWidth - cropWidth / 2, padWidth / 2 + sceneCenterX * panoramaScale)),
+    cropCenterY: Math.max(cropHeight / 2, Math.min(padHeight - cropHeight / 2, padHeight / 2 + sceneCenterY * panoramaScale)),
+    previewScale: panoramaScale,
   };
 }
 
@@ -847,7 +875,7 @@ function ExportAspectSelect({ value, onChange }: { value: VideoExportSettings["a
 }
 
 function ExportResolutionSelect({ value, onChange }: { value: VideoExportSettings["height"]; onChange: (height: VideoExportSettings["height"]) => void }) {
-  return <label>Resolution<select value={value} onChange={(event) => onChange(Number(event.target.value) as VideoExportSettings["height"])}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option></select></label>;
+  return <label>Resolution<select value={value} onChange={(event) => onChange(Number(event.target.value) as VideoExportSettings["height"])}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option><option value={1440}>1440p</option></select></label>;
 }
 
 function ImageExportPanel({ recipe, settings, onSettingsChange, onExport, description }: { recipe: Recipe; settings: VideoExportSettings; onSettingsChange: (update: Partial<VideoExportSettings>) => void; onExport: () => void; description: string }) {
@@ -1379,7 +1407,7 @@ function Slider({ label, value, min = 0, max = 1, step = .01, unit = "%", onChan
   return <label className="slider-row"><span className="slider-label">{label}</span><span className="slider-value"><input aria-label={`${label} value`} title="Type a precise value" type="number" min={displayMin} max={displayMax} step={displayStep} value={shown} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { const next = Number(event.target.value); if (!Number.isFinite(next)) return; onChange(Math.min(max, Math.max(min, unit === "%" ? next / 100 : next))); }} />{unit}</span>{trailing && <span className="slider-trailing">{trailing}</span>}<span className="slider-visual"><span className="slider-fill" style={{ width: `${progress}%` }} /><span className="slider-ticks" aria-hidden="true">{Array.from({ length: 9 }, (_, index) => <i key={index} />)}</span><input className="slider-control" aria-label={label} type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} /></span></label>;
 }
 
-function CameraPadScene({ recipe, mockup, geometry, camera, navigator = false }: { recipe: Recipe; mockup: MockupSettings; geometry: CameraGeometry; camera: Pick<MockupSettings, "scale" | "cameraX" | "cameraY" | "x" | "y" | "rotate">; navigator?: boolean }) {
+function CameraPadScene({ recipe, mockup, geometry, camera }: { recipe: Recipe; mockup: MockupSettings; geometry: CameraGeometry; camera: Pick<MockupSettings, "scale" | "cameraX" | "cameraY" | "x" | "y" | "rotate"> }) {
   const frame = getCameraFrame(camera, geometry);
   const panX = -camera.cameraX / 50 * frame.panLimitX * frame.previewScale;
   const panY = -camera.cameraY / 50 * frame.panLimitY * frame.previewScale;
@@ -1390,7 +1418,19 @@ function CameraPadScene({ recipe, mockup, geometry, camera, navigator = false }:
     <div className="camera-preview-media" style={{ width: geometry.stageWidth * frame.previewScale, height: geometry.stageHeight * frame.previewScale, transform: `translate(-50%, -50%) translate(${offsetX + panX}px, ${offsetY + panY}px) scale(${frame.renderScale}) rotate(${camera.rotate}deg)` }}>
       {mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Current mockup media" /> : <div className="camera-preview-demo"><span>THE NEXT RELEASE</span><b>Make the work<br />feel inevitable.</b></div>}
     </div>
-    {navigator && <div className="camera-focus-window" style={{ width: frame.cropWidth, height: frame.cropHeight, left: frame.cropCenterX, top: frame.cropCenterY }}><i className="camera-handle" /></div>}
+  </>;
+}
+
+function CameraNavigatorScene({ recipe, mockup, geometry, hoverCenter }: { recipe: Recipe; mockup: MockupSettings; geometry: CameraGeometry; hoverCenter: { x: number; y: number } | null }) {
+  const frame = getPanoramaCameraFrame(mockup, geometry);
+  const panoramaScale = geometry.stageWidth && geometry.stageHeight ? Math.min(geometry.padWidth * .78 / geometry.stageWidth, geometry.padHeight * .78 / geometry.stageHeight) : 1;
+  return <>
+    <ShaderCanvas recipe={recipe} frozen onError={() => undefined} />
+    <div className="camera-preview-media camera-panorama-media" style={{ width: geometry.stageWidth * panoramaScale, height: geometry.stageHeight * panoramaScale, transform: `translate(-50%, -50%) rotate(${mockup.rotate}deg)` }}>
+      {mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Current mockup media" /> : <div className="camera-preview-demo"><span>THE NEXT RELEASE</span><b>Make the work<br />feel inevitable.</b></div>}
+    </div>
+    <div className="camera-focus-window camera-current-window" style={{ width: frame.cropWidth, height: frame.cropHeight, left: frame.cropCenterX, top: frame.cropCenterY }} />
+    {hoverCenter && <div className="camera-focus-window camera-hover-window" style={{ width: frame.cropWidth, height: frame.cropHeight, left: hoverCenter.x, top: hoverCenter.y }}><i className="camera-handle" /></div>}
   </>;
 }
 
@@ -1427,7 +1467,7 @@ export function ShaderStudio() {
   const [mockupExportOpen, setMockupExportOpen] = useState(false);
   const [exportTab, setExportTab] = useState<ExportTab>("image");
   const [mockupExportMode, setMockupExportMode] = useState<MockupExportMode>("image");
-  const [mockupImageHeight, setMockupImageHeight] = useState<720 | 1080 | 1440>(1080);
+  const [mockupImageHeight, setMockupImageHeight] = useState<720 | 1080 | 1440 | 2160>(1080);
   const [videoSettings, setVideoSettings] = useState<VideoExportSettings>({ aspect: "16:9", height: 720, fps: 30, duration: 3, loop: false, mimeType: "video/webm;codecs=vp9" });
   const [videoProgress, setVideoProgress] = useState<number | null>(null);
   const [selectedTheme, setSelectedTheme] = useState<string>(companyThemeKey(companyThemes[0].name));
@@ -1461,6 +1501,7 @@ export function ShaderStudio() {
   const mockupStageRef = useRef<HTMLDivElement>(null);
   const cameraPadRef = useRef<HTMLDivElement>(null);
   const [cameraGeometry, setCameraGeometry] = useState<CameraGeometry>(emptyCameraGeometry);
+  const [navigatorHoverCenter, setNavigatorHoverCenter] = useState<{ x: number; y: number } | null>(null);
   const [alignmentGridVisible, setAlignmentGridVisible] = useState(false);
   const playheadRef = useRef(0);
   const baseDuration = 8;
@@ -1803,6 +1844,8 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   const drawMockupComposition = async (canvas: HTMLCanvasElement) => {
     const context = canvas.getContext("2d"); const shader = queryShaderCanvas(recipe.style);
     if (!context || !shader) throw new Error("Live shader preview is unavailable");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
     context.drawImage(shader, 0, 0, canvas.width, canvas.height);
     if (!mockup.visible) return;
     const stageWidthRatio = cameraGeometry.viewportWidth ? cameraGeometry.stageWidth / cameraGeometry.viewportWidth : .58;
@@ -2197,7 +2240,11 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     const frame = getCameraFrame(state, cameraGeometry);
     const panX = -state.cameraX / 50 * frame.panLimitX;
     const panY = -state.cameraY / 50 * frame.panLimitY;
-    return `translate(-50%, -50%) translate(${state.x}% , ${state.y}%) translate(${panX}px, ${panY}px) scale(${frame.renderScale}) perspective(1200px) rotateX(${state.tiltX}deg) rotateY(${state.tiltY}deg) rotateZ(${state.rotate}deg)`;
+    const placement = `translate(-50%, -50%) translate(${state.x}% , ${state.y}%) translate(${panX}px, ${panY}px) scale(${frame.renderScale})`;
+    // Do not force a flat mockup into the 3D compositor: it softens small UI text.
+    return state.tiltX || state.tiltY
+      ? `${placement} perspective(1200px) rotateX(${state.tiltX}deg) rotateY(${state.tiltY}deg) rotateZ(${state.rotate}deg)`
+      : `${placement} rotate(${state.rotate}deg)`;
   };
   const stageMockup = editorMode === "animation" && previewClip ? animationState(previewClip) : mockup;
   const menuClip = clipMenu ? animationClips.find((clip) => clip.id === clipMenu.clipId) : undefined;
@@ -2238,16 +2285,16 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   }, [editorMode, animationClips, activeClipId, clipClipboard]);
 
   const moveCamera = (event: PointerEvent<HTMLDivElement>) => {
-    const frame = getCameraFrame(mockup, cameraGeometry);
+    const frame = getPanoramaCameraFrame(mockup, cameraGeometry);
     const box = event.currentTarget.getBoundingClientRect();
-    const px = event.clientX - box.left - box.width / 2;
-    const py = event.clientY - box.top - box.height / 2;
     if (cameraMode === "zoom") {
-      const boundedX = Math.max(frame.cropWidth / 2, Math.min(box.width - frame.cropWidth / 2, px + box.width / 2)) - box.width / 2;
-      const boundedY = Math.max(frame.cropHeight / 2, Math.min(box.height - frame.cropHeight / 2, py + box.height / 2)) - box.height / 2;
-      const cameraX = frame.panLimitX ? Math.round(Math.max(-50, Math.min(50, boundedX / (frame.previewScale * frame.panLimitX) * 50))) : 0;
-      const cameraY = frame.panLimitY ? Math.round(Math.max(-50, Math.min(50, boundedY / (frame.previewScale * frame.panLimitY) * 50))) : 0;
+      const center = getNavigatorCenter(event, frame, box);
+      const boundedX = center.x - box.width / 2;
+      const boundedY = center.y - box.height / 2;
+      const cameraX = frame.panLimitX ? Math.round(Math.max(-50, Math.min(50, (boundedX / frame.previewScale * frame.renderScale + mockup.x / 100 * cameraGeometry.viewportWidth) / frame.panLimitX * 50))) : 0;
+      const cameraY = frame.panLimitY ? Math.round(Math.max(-50, Math.min(50, (boundedY / frame.previewScale * frame.renderScale + mockup.y / 100 * cameraGeometry.viewportHeight) / frame.panLimitY * 50))) : 0;
       updateMockup({ cameraX, cameraY });
+      setNavigatorHoverCenter(center);
       setBasePresetId("custom");
     } else {
       const normalizedX = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
@@ -2255,6 +2302,10 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       updateMockup({ tiltY: Math.round((normalizedX - .5) * 90), tiltX: Math.round((.5 - normalizedY) * 90) });
       setBasePresetId("custom");
     }
+  };
+  const previewNavigatorTarget = (event: PointerEvent<HTMLDivElement>) => {
+    if (cameraMode !== "zoom") return;
+    setNavigatorHoverCenter(getNavigatorCenter(event, getPanoramaCameraFrame(mockup, cameraGeometry), event.currentTarget.getBoundingClientRect()));
   };
   const moveAnimationCamera = (event: PointerEvent<HTMLDivElement>) => {
     if (!activeClip) return;
@@ -2280,7 +2331,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
         {tab === "mockup" && <section className="output-frame-control"><div><span className="section-label">Output frame</span><p>Canvas, camera, animation, and export</p></div><div className="output-frame-grid">{outputFrames.map((frame) => <button key={frame.aspect} className={outputAspect === frame.aspect ? "selected" : ""} onClick={() => setOutputFrame(frame.aspect)} aria-pressed={outputAspect === frame.aspect}><i className={`output-frame-shape ratio-${frame.aspect.replace(":", "-")}`} /><span>{frame.aspect}</span><small>{frame.label}</small></button>)}</div></section>}
         {tab === "mockup" && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid">{(["browser", "glass", "border", "inset", "none"] as MockupFrame[]).map((frame) => <button key={frame} onClick={() => updateMockup({ frame })} className={mockup.frame === frame ? "selected" : ""}><i className={`frame-sample ${frame}`} /><span>{frame === "none" ? "Clean" : frame}</span></button>)}</div><div className="section-label">Border</div><div className="mockup-segment"><button onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment"><button onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
       </div><div className="local-recipes"><div className="section-label">Local recipes</div>{saved.length ? saved.slice(0, 3).map((item) => <button key={item.id} onClick={() => setRecipe(item)}>{item.name}<ChevronDown /></button>) : <span>Saved looks appear here.</span>}</div></aside>
-{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div className={`alignment-grid ${alignmentGridVisible ? "visible" : ""}`} aria-hidden="true" /><div ref={mockupStageRef} className={`mockup-stage frame-${mockup.frame}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, visibility: mockup.visible ? "visible" : "hidden" }}><div className="browser-bar"><i /><i /><i /><span>your-product.com</span></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <div className="mockup-demo"><span>THE NEXT RELEASE</span><h1>Make the work<br />feel inevitable.</h1><p>Your product, framed by a live visual system.</p><b>Explore release notes <span>→</span></b></div>}</div></div><aside className="camera-inspector"><div className="camera-tabs"><button className={cameraMode === "zoom" ? "active" : ""} onClick={() => setCameraMode("zoom")}>Zoom</button><button className={cameraMode === "tilt" ? "active" : ""} onClick={() => setCameraMode("tilt")}>Tilt</button></div><div ref={cameraPadRef} className={`camera-pad ${cameraMode === "tilt" ? "tilt-preview" : "zoom-preview"}`} onPointerDown={moveCamera} onPointerMove={(event) => event.buttons === 1 && moveCamera(event)} role="application" aria-label="Choose the centre of the visible camera view">{cameraMode === "zoom" && <CameraPadScene recipe={recipe} mockup={mockup} geometry={cameraGeometry} camera={mockup} navigator />}{cameraMode === "tilt" && <div className="camera-pad-card" style={{ transform: `translate(-50%, -50%) perspective(280px) rotateX(${mockup.tiltX}deg) rotateY(${mockup.tiltY}deg) rotateZ(${mockup.rotate}deg) scale(${.65 + mockup.scale * .18})` }} />}<span className="camera-cross horizontal" /><span className="camera-cross vertical" /><i className="camera-handle tilt-handle" style={{ left: `${50 + Math.max(-45, Math.min(45, mockup.tiltY)) * 1.1}%`, top: `${50 - Math.max(-45, Math.min(45, mockup.tiltX)) * 1.1}%` }} /><span className="tilt-preview-label">Tilt preview</span></div><Slider label={cameraMode === "zoom" ? "Zoom" : "Tilt"} value={cameraMode === "zoom" ? mockup.scale : mockup.tiltY} min={cameraMode === "zoom" ? .45 : -12} max={cameraMode === "zoom" ? 4 : 12} step={.01} unit={cameraMode === "zoom" ? "×" : "°"} onChange={(value) => { updateMockup(cameraMode === "zoom" ? { scale: value } : { tiltY: value }); setBasePresetId("custom"); }} /><div className="section-label camera-label">Layout presets</div><div className="layout-presets">{mockupPresets.map((preset) => <button key={preset.id} onClick={() => useMockupPreset(preset)} className={`layout-preset ${preset.id} ${basePresetId === preset.id ? "selected" : ""}`} aria-pressed={basePresetId === preset.id}><CameraPresetPreview recipe={recipe} mockup={mockup} geometry={cameraGeometry} preset={preset} />{preset.id === "custom" && <b>Custom layout</b>}<em>{preset.id === "custom" ? "" : preset.label}</em></button>)}</div></aside></>}
+{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div className={`alignment-grid ${alignmentGridVisible ? "visible" : ""}`} aria-hidden="true" /><div ref={mockupStageRef} className={`mockup-stage frame-${mockup.frame}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, visibility: mockup.visible ? "visible" : "hidden" }}><div className="browser-bar"><i /><i /><i /><span>your-product.com</span></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <div className="mockup-demo"><span>THE NEXT RELEASE</span><h1>Make the work<br />feel inevitable.</h1><p>Your product, framed by a live visual system.</p><b>Explore release notes <span>→</span></b></div>}</div></div><aside className="camera-inspector"><div className="camera-tabs"><button className={cameraMode === "zoom" ? "active" : ""} onClick={() => setCameraMode("zoom")}>Zoom</button><button className={cameraMode === "tilt" ? "active" : ""} onClick={() => setCameraMode("tilt")}>Tilt</button></div><div ref={cameraPadRef} className={`camera-pad ${cameraMode === "tilt" ? "tilt-preview" : "zoom-preview"}`} onPointerDown={moveCamera} onPointerMove={(event) => { previewNavigatorTarget(event); if (event.buttons === 1) moveCamera(event); }} onPointerLeave={() => setNavigatorHoverCenter(null)} role="application" aria-label="Choose the centre of the visible camera view">{cameraMode === "zoom" && <CameraNavigatorScene recipe={recipe} mockup={mockup} geometry={cameraGeometry} hoverCenter={navigatorHoverCenter} />}{cameraMode === "tilt" && <div className="camera-pad-card" style={{ transform: `translate(-50%, -50%) perspective(280px) rotateX(${mockup.tiltX}deg) rotateY(${mockup.tiltY}deg) rotateZ(${mockup.rotate}deg) scale(${.65 + mockup.scale * .18})` }} />}<span className="camera-cross horizontal" /><span className="camera-cross vertical" /><i className="camera-handle tilt-handle" style={{ left: `${50 + Math.max(-45, Math.min(45, mockup.tiltY)) * 1.1}%`, top: `${50 - Math.max(-45, Math.min(45, mockup.tiltX)) * 1.1}%` }} /><span className="tilt-preview-label">Tilt preview</span></div><Slider label={cameraMode === "zoom" ? "Zoom" : "Tilt"} value={cameraMode === "zoom" ? mockup.scale : mockup.tiltY} min={cameraMode === "zoom" ? .45 : -12} max={cameraMode === "zoom" ? 4 : 12} step={.01} unit={cameraMode === "zoom" ? "×" : "°"} onChange={(value) => { updateMockup(cameraMode === "zoom" ? { scale: value } : { tiltY: value }); setBasePresetId("custom"); }} /><div className="section-label camera-label">Layout presets</div><div className="layout-presets">{mockupPresets.map((preset) => <button key={preset.id} onClick={() => useMockupPreset(preset)} className={`layout-preset ${preset.id} ${basePresetId === preset.id ? "selected" : ""}`} aria-pressed={basePresetId === preset.id}><CameraPresetPreview recipe={recipe} mockup={mockup} geometry={cameraGeometry} preset={preset} />{preset.id === "custom" && <b>Custom layout</b>}<em>{preset.id === "custom" ? "" : preset.label}</em></button>)}</div></aside></>}
         {tab === "mockup" && editorMode === "animation" && <>
          <aside className="motion-inspector">
           <div className="motion-header"><div><span className="eyebrow">SELECTED ANIMATION</span><h2>{activeClip?.label ?? "Animation"}</h2><p>Choose its destination, then fine-tune it.</p></div><div className="motion-header-actions"><button className="duplicate-animation" onClick={duplicateActiveClip} title="Duplicate animation" aria-label="Duplicate animation"><Copy /></button><button onClick={selectBaseMedia}>Edit base</button></div></div>
@@ -2300,7 +2351,31 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
           </motion.section>}
         </AnimatePresence>
       </>}
-      <section className="canvas-area"><div className="canvas-frame"><ShaderCanvas recipe={recipe} frozen={frozen || exportOpen || mockupExportOpen} onError={setError} /><div className={`canvas-meta ${frozen ? "is-frozen" : "is-live"}`}><span className={frozen ? "frozen-dot" : "live-dot"} aria-hidden="true" />{frozen ? "FROZEN" : "LIVE"} <b>{activeLabel}</b></div>{error && <div className="canvas-error"><CircleHelp /> Shader error — open Code to repair it.</div>}<div className="canvas-dock"><button data-tooltip="Create a completely new shader recipe" onClick={inspire}><CircleHelp /> Inspire</button><button data-tooltip="Keep the style and settings; choose new colours" onClick={recolour}><Droplets /> Recolour</button><button data-tooltip="Keep the style and colours; replace only the settings" onClick={remix}><WandSparkles /> Remix</button><button data-tooltip="Choose a new shader style while keeping the palette" onClick={restyle}><WandSparkles /> Restyle</button><button data-tooltip={frozen ? "Resume the live preview" : "Freeze the live preview"} onClick={() => setFrozen((value) => !value)} aria-pressed={frozen}>{frozen ? <Play /> : <Pause />}{frozen ? "Play" : "Freeze"}</button></div></div></section>
+      <section className={`canvas-area${tab === "mockup" ? " is-mockup" : ""}`}>
+        <div className="canvas-frame">
+          <ShaderCanvas recipe={recipe} frozen={frozen || exportOpen || mockupExportOpen} onError={setError} />
+          {error && <div className="canvas-error"><CircleHelp /> Shader error — open Code to repair it.</div>}
+        </div>
+        <AnimatePresence initial={false}>
+          <motion.div
+            key={tab === "mockup" ? "chrome-below" : "chrome-overlay"}
+            className={`canvas-chrome${tab === "mockup" ? " is-below" : ""}`}
+            initial={{ opacity: 0, y: tab === "mockup" ? 8 : 0 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className={`canvas-meta ${frozen ? "is-frozen" : "is-live"}`}><span className={frozen ? "frozen-dot" : "live-dot"} aria-hidden="true" />{frozen ? "FROZEN" : "LIVE"} <b>{activeLabel}</b></div>
+            <div className="canvas-dock">
+              <button data-tooltip="Create a completely new shader recipe" onClick={inspire}><CircleHelp /> Inspire</button>
+              <button data-tooltip="Keep the style and settings; choose new colours" onClick={recolour}><Droplets /> Recolour</button>
+              <button data-tooltip="Keep the style and colours; replace only the settings" onClick={remix}><WandSparkles /> Remix</button>
+              <button data-tooltip="Choose a new shader style while keeping the palette" onClick={restyle}><WandSparkles /> Restyle</button>
+              <button data-tooltip={frozen ? "Resume the live preview" : "Freeze the live preview"} onClick={() => setFrozen((value) => !value)} aria-pressed={frozen}>{frozen ? <Play /> : <Pause />}{frozen ? "Play" : "Freeze"}</button>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </section>
     </section>
     {saveOpen && <div className="modal-backdrop" role="presentation"><div className="save-modal" role="dialog" aria-modal="true" aria-labelledby="save-title"><button className="close" onClick={() => setSaveOpen(false)} aria-label="Close"><X /></button><Sparkles /><h2 id="save-title">Save recipe</h2><p>Keep this shader configuration in this browser for later remixing.</p><input autoFocus value={saveName} onChange={(event) => setSaveName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && save()} /><button className="button primary wide" onClick={save}><Save /> Save locally</button></div></div>}
     {exportOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-title"><button className="close" onClick={() => setExportOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><span className="eyebrow">READY TO SHIP</span><h2 id="export-title">Export shader</h2><p>Take the current look into your project in the format you need.</p></div><ImageDown /></div><div className="export-tabs" role="tablist">{(["image", "video", "prompt", "react", "glsl"] as ExportTab[]).map((item) => <button key={item} className={exportTab === item ? "active" : ""} onClick={() => setExportTab(item)} role="tab" aria-selected={exportTab === item}>{item === "image" ? "Image" : item === "video" ? "Animation" : item === "prompt" ? "Prompt" : item === "react" ? "React code" : "GLSL"}</button>)}</div></div><div className="export-modal-body">{exportTab === "image" && <ImageExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportPng} description="Cursor interactions are excluded from exports." />}{exportTab === "video" && <FullVideoExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportVideo} videoProgress={videoProgress} />}{exportTab === "prompt" && <SourceSurface title="Build prompt" helper="A complete implementation prompt generated from the active shader configuration." source={buildPrompt()} footer={<><button className="button primary wide" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button wide ghost" onClick={() => exportText(buildPrompt(), "shader-studio-prompt.txt", "text/plain")}><Download /> Download .txt</button></>} />}{exportTab === "react" && <SourceSurface title="React component" helper={isPaperStyle(recipe.style) ? "A Paper Design component configured with your current palette, motion, and surface settings." : "A self-contained recipe and fragment shader ready to paste into a client component."} source={reactCode} footer={<><button className="button primary wide" onClick={() => copyText(reactCode, "React component copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy React code"}</button><button className="button wide ghost" onClick={() => exportText(reactCode, "shader-studio-shader.ts", "text/plain")}><Download /> Download .ts</button></>} />}{exportTab === "glsl" && <SourceSurface title="Fragment GLSL" helper={isPaperStyle(recipe.style) ? "Paper Design shaders ship with internal GLSL. Use React export for production code." : "The exact fragment shader currently driving the preview."} source={glslExportSource} footer={<><button className="button primary wide" onClick={() => copyText(glslExportSource, isPaperStyle(recipe.style) ? "Paper props copied" : "GLSL copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : isPaperStyle(recipe.style) ? "Copy props" : "Copy GLSL"}</button><button className="button wide ghost" onClick={() => exportText(glslExportSource, isPaperStyle(recipe.style) ? "shader-studio-paper-props.json" : "shader-studio-shader.glsl", isPaperStyle(recipe.style) ? "application/json" : "text/plain")}><Download /> Download {isPaperStyle(recipe.style) ? ".json" : ".glsl"}</button></>} />}</div></div></div>}
