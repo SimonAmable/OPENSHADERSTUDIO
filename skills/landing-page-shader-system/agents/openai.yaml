@@ -1,0 +1,4 @@
+interface:
+  display_name: "Landing Page Shader System"
+  short_description: "Plan cohesive shaders for a landing page."
+  default_prompt: "Use $landing-page-shader-system to plan a cohesive shader system for my landing page."
