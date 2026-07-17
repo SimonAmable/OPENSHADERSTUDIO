@@ -6,9 +6,14 @@ export const metadata: Metadata = {
   title: "Shader Studio",
   description: "Create, tune, and export interactive WebGL shaders.",
   icons: {
-    icon: "/favicon.ico",
-    apple: "/apple-icon.png",
+    icon: [
+      { url: "/favicon-for-app/favicon.ico", type: "image/x-icon" },
+      { url: "/favicon-for-app/icon0.svg", type: "image/svg+xml" },
+      { url: "/favicon-for-app/icon1.png", type: "image/png" },
+    ],
+    apple: "/favicon-for-app/apple-icon.png",
   },
+  manifest: "/favicon-for-app/manifest.json",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
