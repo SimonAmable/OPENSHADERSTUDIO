@@ -631,7 +631,6 @@ function PaperShaderCanvas({ recipe, frozen, onReady }: { recipe: Recipe; frozen
   const ref = useRef<(HTMLElement & { canvasElement?: HTMLCanvasElement }) | null>(null);
   const pointer = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
   const [cursorOffset, setCursorOffset] = useState<PaperCursorOffset>({ x: 0, y: 0, rotation: 0 });
-  const cursorFrame = useRef<number>(0);
   const Component = paperShaders[recipe.style];
   const cursorActive = recipe.cursorEnabled && !frozen;
 
@@ -649,52 +648,8 @@ function PaperShaderCanvas({ recipe, frozen, onReady }: { recipe: Recipe; frozen
   }, [frozen]);
 
   useEffect(() => {
-    if (!cursorActive) {
-      setCursorOffset({ x: 0, y: 0, rotation: 0 });
-      return;
-    }
-    const tick = () => {
-      const point = pointer.current;
-      const distance = Math.hypot(point.x, point.y);
-      const influence = Math.max(0, 1 - distance / Math.max(0.15, recipe.cursorRadius)) * recipe.cursorStrength;
-      let x = 0;
-      let y = 0;
-      let rotation = 0;
-      switch (recipe.cursorEffect) {
-        case "push":
-          x = (point.x + point.vx * 0.5) * influence * 0.35;
-          y = (point.y + point.vy * 0.5) * influence * 0.35;
-          break;
-        case "repel":
-          x = -point.x * influence * 0.45;
-          y = -point.y * influence * 0.45;
-          break;
-        case "swirl":
-          rotation = influence * 18 * Math.sign(point.x * point.y || 1);
-          x = -point.y * influence * 0.25;
-          y = point.x * influence * 0.25;
-          break;
-        case "ripple":
-          x = point.x * Math.sin(distance * 24) * influence * 0.2;
-          y = point.y * Math.cos(distance * 24) * influence * 0.2;
-          break;
-        case "spotlight":
-          x = point.x * influence * 0.15;
-          y = point.y * influence * 0.15;
-          break;
-        default: {
-          const effect: never = recipe.cursorEffect;
-          throw new Error(`Unhandled cursor effect: ${effect}`);
-        }
-      }
-      setCursorOffset({ x, y, rotation });
-      point.vx *= 0.9;
-      point.vy *= 0.9;
-      cursorFrame.current = requestAnimationFrame(tick);
-    };
-    cursorFrame.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(cursorFrame.current);
-  }, [cursorActive, recipe.cursorEffect, recipe.cursorStrength, recipe.cursorRadius]);
+    if (!cursorActive) setCursorOffset({ x: 0, y: 0, rotation: 0 });
+  }, [cursorActive]);
 
   const move = (event: PointerEvent<HTMLDivElement>) => {
     if (!cursorActive) return;
@@ -705,6 +660,19 @@ function PaperShaderCanvas({ recipe, frozen, onReady }: { recipe: Recipe; frozen
     pointer.current.vy = (y - pointer.current.y) * 0.8;
     pointer.current.x = x;
     pointer.current.y = y;
+    const distance = Math.hypot(x, y);
+    const influence = Math.max(0, 1 - distance / Math.max(0.15, recipe.cursorRadius)) * recipe.cursorStrength;
+    let offsetX = 0;
+    let offsetY = 0;
+    let rotation = 0;
+    switch (recipe.cursorEffect) {
+      case "push": offsetX = (x + pointer.current.vx * 0.5) * influence * 0.35; offsetY = (y + pointer.current.vy * 0.5) * influence * 0.35; break;
+      case "repel": offsetX = -x * influence * 0.45; offsetY = -y * influence * 0.45; break;
+      case "swirl": rotation = influence * 18 * Math.sign(x * y || 1); offsetX = -y * influence * 0.25; offsetY = x * influence * 0.25; break;
+      case "ripple": offsetX = x * Math.sin(distance * 24) * influence * 0.2; offsetY = y * Math.cos(distance * 24) * influence * 0.2; break;
+      case "spotlight": offsetX = x * influence * 0.15; offsetY = y * influence * 0.15; break;
+    }
+    setCursorOffset({ x: offsetX, y: offsetY, rotation });
   };
 
   if (!Component) return null;
@@ -721,7 +689,10 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
   const programRef = useRef<WebGLProgram | null>(null);
   const [programVersion, setProgramVersion] = useState(0);
   const frozenTime = useRef(0);
+  const onErrorRef = useRef(onError);
   const cursorActive = recipe.cursorEnabled && !frozen;
+
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   useEffect(() => {
     if (!frozen) return;
@@ -731,36 +702,41 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
   useEffect(() => {
     const canvas = ref.current; if (!canvas) return;
     const gl = canvas.getContext("webgl", { preserveDrawingBuffer: true });
-    if (!gl) { onError("WebGL is unavailable in this browser."); return; }
+    if (!gl) { onErrorRef.current("WebGL is unavailable in this browser."); return; }
     const compile = (type: number, source: string) => { const shader = gl.createShader(type)!; gl.shaderSource(shader, source); gl.compileShader(shader); if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || "Shader compile failed"); return shader; };
     try {
       const vertex = compile(gl.VERTEX_SHADER, "attribute vec2 position; void main(){gl_Position=vec4(position,0.,1.);}");
       const fragment = compile(gl.FRAGMENT_SHADER, recipe.glsl);
       const program = gl.createProgram()!; gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program);
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || "Shader link failed");
-       programRef.current = program; setProgramVersion((version) => version + 1); onError(null);
-    } catch (error) { onError(error instanceof Error ? error.message.replace(/ERROR: \d+:(\d+):/, "Line $1:") : "Shader compile failed"); }
-  }, [recipe.glsl, onError]);
+        programRef.current = program; setProgramVersion((version) => version + 1); onErrorRef.current(null);
+    } catch (error) { onErrorRef.current(error instanceof Error ? error.message.replace(/ERROR: \d+:(\d+):/, "Line $1:") : "Shader compile failed"); }
+  }, [recipe.glsl]);
 
   useEffect(() => {
     const canvas = ref.current; const gl = canvas?.getContext("webgl"); if (!canvas || !gl) return;
     const position = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, position); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const program = programRef.current;
+    if (!program) return;
+    const attribute = gl.getAttribLocation(program, "position");
+    const uniforms = Object.fromEntries(["u_resolution", "u_time", "u_pointer", "u_velocity", "u_colors", "u_style", "u_intensity", "u_zoom", "u_warp", "u_contrast", "u_speed", "u_drift", "u_animate", "u_reverse", "u_rotate", "u_seed", "u_smooth_blend", "u_grain", "u_offset", "u_cursor_on", "u_cursor_effect", "u_cursor_strength", "u_cursor_radius"].map((name) => [name, gl.getUniformLocation(program, name)])) as Record<string, WebGLUniformLocation | null>;
+    const shouldAnimate = !frozen && (recipe.animate || cursorActive);
     const render = (timestamp: number) => {
-      frame.current = requestAnimationFrame(render);
-      const program = programRef.current; if (!program) return;
-      const width = canvas.clientWidth * devicePixelRatio; const height = canvas.clientHeight * devicePixelRatio;
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const width = Math.max(1, Math.round(canvas.clientWidth * pixelRatio)); const height = Math.max(1, Math.round(canvas.clientHeight * pixelRatio));
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
       gl.viewport(0, 0, width, height); gl.useProgram(program);
-      const set1 = (name: string, value: number) => gl.uniform1f(gl.getUniformLocation(program, name), value);
-      gl.enableVertexAttribArray(gl.getAttribLocation(program, "position")); gl.vertexAttribPointer(gl.getAttribLocation(program, "position"), 2, gl.FLOAT, false, 0, 0);
+      const set1 = (name: string, value: number) => gl.uniform1f(uniforms[name], value);
+      gl.enableVertexAttribArray(attribute); gl.vertexAttribPointer(attribute, 2, gl.FLOAT, false, 0, 0);
       if (!start.current) start.current = timestamp;
       if (!frozen) frozenTime.current = (timestamp - start.current) / 1000;
-      gl.uniform2f(gl.getUniformLocation(program, "u_resolution"), width, height); set1("u_time", frozenTime.current);
-      gl.uniform2f(gl.getUniformLocation(program, "u_pointer"), pointer.current.x, pointer.current.y); gl.uniform2f(gl.getUniformLocation(program, "u_velocity"), pointer.current.vx, pointer.current.vy);
-      const colors = [...recipe.palette]; while (colors.length < 8) colors.push(colors.at(-1) || "#000000"); gl.uniform3fv(gl.getUniformLocation(program, "u_colors"), colors.slice(0, 8).map(hexToRgb).flat());
-      set1("u_style", recipe.style); set1("u_intensity", recipe.intensity); set1("u_zoom", recipe.zoom); set1("u_warp", recipe.warp); set1("u_contrast", recipe.contrast); set1("u_speed", recipe.speed); set1("u_drift", recipe.drift); set1("u_animate", recipe.animate ? 1 : 0); set1("u_reverse", recipe.reverse ? 1 : 0); set1("u_rotate", recipe.rotate); set1("u_seed", recipe.seed); set1("u_smooth_blend", recipe.smoothBlend ? 1 : 0); set1("u_grain", recipe.grain); gl.uniform2f(gl.getUniformLocation(program, "u_offset"), recipe.offsetX, recipe.offsetY);
+      gl.uniform2f(uniforms.u_resolution, width, height); set1("u_time", frozenTime.current);
+      gl.uniform2f(uniforms.u_pointer, pointer.current.x, pointer.current.y); gl.uniform2f(uniforms.u_velocity, pointer.current.vx, pointer.current.vy);
+      const colors = [...recipe.palette]; while (colors.length < 8) colors.push(colors.at(-1) || "#000000"); gl.uniform3fv(uniforms.u_colors, colors.slice(0, 8).map(hexToRgb).flat());
+      set1("u_style", recipe.style); set1("u_intensity", recipe.intensity); set1("u_zoom", recipe.zoom); set1("u_warp", recipe.warp); set1("u_contrast", recipe.contrast); set1("u_speed", recipe.speed); set1("u_drift", recipe.drift); set1("u_animate", recipe.animate ? 1 : 0); set1("u_reverse", recipe.reverse ? 1 : 0); set1("u_rotate", recipe.rotate); set1("u_seed", recipe.seed); set1("u_smooth_blend", recipe.smoothBlend ? 1 : 0); set1("u_grain", recipe.grain); gl.uniform2f(uniforms.u_offset, recipe.offsetX, recipe.offsetY);
       set1("u_cursor_on", cursorActive ? 1 : 0); set1("u_cursor_effect", ["push", "repel", "swirl", "ripple", "spotlight"].indexOf(recipe.cursorEffect)); set1("u_cursor_strength", recipe.cursorStrength); set1("u_cursor_radius", recipe.cursorRadius);
       gl.drawArrays(gl.TRIANGLES, 0, 3); if (cursorActive) { pointer.current.vx *= .92; pointer.current.vy *= .92; }
+      if (shouldAnimate) frame.current = requestAnimationFrame(render);
     };
     frame.current = requestAnimationFrame(render); return () => cancelAnimationFrame(frame.current);
   }, [recipe, frozen, cursorActive, programVersion]);
@@ -811,7 +787,7 @@ export function StaticStylePreview({ style }: { style: number }) {
 function SavedRecipePreview({ recipe }: { recipe: Recipe }) {
   // Saved cards use the exact persisted recipe rather than approximating it
   // with a CSS gradient, including custom GLSL and every shader setting.
-  return <ShaderCanvas recipe={recipe} frozen={false} onError={() => undefined} />;
+  return <ShaderCanvas recipe={recipe} frozen onError={() => undefined} />;
 }
 
 function SourceSurface({ title, helper, source, onChange, status, footer }: { title: string; helper: string; source: string; onChange?: (source: string) => void; status?: ReactNode; footer?: ReactNode }) {
@@ -850,7 +826,7 @@ function loopExportDuration(settings: VideoExportSettings) {
 }
 
 function ExportShaderPreview({ recipe, aspect }: { recipe: Recipe; aspect: VideoExportSettings["aspect"] }) {
-  return <div className="export-preview" style={{ "--export-preview-aspect": exportPreviewAspect(aspect) } as CSSProperties}><ShaderCanvas recipe={recipe} frozen={false} onError={() => undefined} /></div>;
+  return <div className="export-preview" style={{ "--export-preview-aspect": exportPreviewAspect(aspect) } as CSSProperties}><ShaderCanvas recipe={recipe} frozen onError={() => undefined} /></div>;
 }
 
 function ExportAspectSelect({ value, onChange }: { value: VideoExportSettings["aspect"]; onChange: (aspect: VideoExportSettings["aspect"]) => void }) {
@@ -1397,7 +1373,7 @@ function CameraPadScene({ recipe, mockup, geometry, camera }: { recipe: Recipe; 
   const offsetX = camera.x / 100 * geometry.viewportWidth * frame.previewScale;
   const offsetY = camera.y / 100 * geometry.viewportHeight * frame.previewScale;
   return <>
-    <ShaderCanvas recipe={recipe} frozen={false} onError={() => undefined} />
+    <ShaderCanvas recipe={recipe} frozen onError={() => undefined} />
     <div className="camera-preview-media" style={{ width: geometry.stageWidth * frame.previewScale, height: geometry.stageHeight * frame.previewScale, transform: `translate(-50%, -50%) translate(${offsetX + panX}px, ${offsetY + panY}px) scale(${frame.renderScale}) rotate(${camera.rotate}deg)` }}>
       {mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Current mockup media" /> : <div className="camera-preview-demo"><span>THE NEXT RELEASE</span><b>Make the work<br />feel inevitable.</b></div>}
     </div>
@@ -2177,7 +2153,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
           </motion.section>}
         </AnimatePresence>
       </>}
-      <section className="canvas-area"><div className="canvas-frame"><ShaderCanvas recipe={recipe} frozen={frozen} onError={setError} /><div className={`canvas-meta ${frozen ? "is-frozen" : "is-live"}`}><span className={frozen ? "frozen-dot" : "live-dot"} aria-hidden="true" />{frozen ? "FROZEN" : "LIVE"} <b>{activeLabel}</b></div>{error && <div className="canvas-error"><CircleHelp /> Shader error — open Code to repair it.</div>}<div className="canvas-dock"><button data-tooltip="Create a completely new shader recipe" onClick={inspire}><CircleHelp /> Inspire</button><button data-tooltip="Keep the style and settings; choose new colours" onClick={recolour}><Droplets /> Recolour</button><button data-tooltip="Keep the style and colours; replace only the settings" onClick={remix}><WandSparkles /> Remix</button><button data-tooltip="Choose a new shader style while keeping the palette" onClick={restyle}><WandSparkles /> Restyle</button><button data-tooltip={frozen ? "Resume the live preview" : "Freeze the live preview"} onClick={() => setFrozen((value) => !value)} aria-pressed={frozen}>{frozen ? <Play /> : <Pause />}{frozen ? "Play" : "Freeze"}</button></div></div></section>
+      <section className="canvas-area"><div className="canvas-frame"><ShaderCanvas recipe={recipe} frozen={frozen || exportOpen || mockupExportOpen} onError={setError} /><div className={`canvas-meta ${frozen ? "is-frozen" : "is-live"}`}><span className={frozen ? "frozen-dot" : "live-dot"} aria-hidden="true" />{frozen ? "FROZEN" : "LIVE"} <b>{activeLabel}</b></div>{error && <div className="canvas-error"><CircleHelp /> Shader error — open Code to repair it.</div>}<div className="canvas-dock"><button data-tooltip="Create a completely new shader recipe" onClick={inspire}><CircleHelp /> Inspire</button><button data-tooltip="Keep the style and settings; choose new colours" onClick={recolour}><Droplets /> Recolour</button><button data-tooltip="Keep the style and colours; replace only the settings" onClick={remix}><WandSparkles /> Remix</button><button data-tooltip="Choose a new shader style while keeping the palette" onClick={restyle}><WandSparkles /> Restyle</button><button data-tooltip={frozen ? "Resume the live preview" : "Freeze the live preview"} onClick={() => setFrozen((value) => !value)} aria-pressed={frozen}>{frozen ? <Play /> : <Pause />}{frozen ? "Play" : "Freeze"}</button></div></div></section>
     </section>
     {saveOpen && <div className="modal-backdrop" role="presentation"><div className="save-modal" role="dialog" aria-modal="true" aria-labelledby="save-title"><button className="close" onClick={() => setSaveOpen(false)} aria-label="Close"><X /></button><Sparkles /><h2 id="save-title">Save recipe</h2><p>Keep this shader configuration in this browser for later remixing.</p><input autoFocus value={saveName} onChange={(event) => setSaveName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && save()} /><button className="button primary wide" onClick={save}><Save /> Save locally</button></div></div>}
     {exportOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-title"><button className="close" onClick={() => setExportOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><span className="eyebrow">READY TO SHIP</span><h2 id="export-title">Export shader</h2><p>Take the current look into your project in the format you need.</p></div><ImageDown /></div><div className="export-tabs" role="tablist">{(["image", "video", "prompt", "react", "glsl"] as ExportTab[]).map((item) => <button key={item} className={exportTab === item ? "active" : ""} onClick={() => setExportTab(item)} role="tab" aria-selected={exportTab === item}>{item === "image" ? "Image" : item === "video" ? "Animation" : item === "prompt" ? "Prompt" : item === "react" ? "React code" : "GLSL"}</button>)}</div></div><div className="export-modal-body">{exportTab === "image" && <ImageExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportPng} description="Cursor interactions are excluded from exports." />}{exportTab === "video" && <FullVideoExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportVideo} videoProgress={videoProgress} />}{exportTab === "prompt" && <SourceSurface title="Build prompt" helper="A complete implementation prompt generated from the active shader configuration." source={buildPrompt()} footer={<><button className="button primary wide" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button wide ghost" onClick={() => exportText(buildPrompt(), "shader-studio-prompt.txt", "text/plain")}><Download /> Download .txt</button></>} />}{exportTab === "react" && <SourceSurface title="React component" helper={isPaperStyle(recipe.style) ? "A Paper Design component configured with your current palette, motion, and surface settings." : "A self-contained recipe and fragment shader ready to paste into a client component."} source={reactCode} footer={<><button className="button primary wide" onClick={() => copyText(reactCode, "React component copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy React code"}</button><button className="button wide ghost" onClick={() => exportText(reactCode, "shader-studio-shader.ts", "text/plain")}><Download /> Download .ts</button></>} />}{exportTab === "glsl" && <SourceSurface title="Fragment GLSL" helper={isPaperStyle(recipe.style) ? "Paper Design shaders ship with internal GLSL. Use React export for production code." : "The exact fragment shader currently driving the preview."} source={glslExportSource} footer={<><button className="button primary wide" onClick={() => copyText(glslExportSource, isPaperStyle(recipe.style) ? "Paper props copied" : "GLSL copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : isPaperStyle(recipe.style) ? "Copy props" : "Copy GLSL"}</button><button className="button wide ghost" onClick={() => exportText(glslExportSource, isPaperStyle(recipe.style) ? "shader-studio-paper-props.json" : "shader-studio-shader.glsl", isPaperStyle(recipe.style) ? "application/json" : "text/plain")}><Download /> Download {isPaperStyle(recipe.style) ? ".json" : ".glsl"}</button></>} />}</div></div></div>}
