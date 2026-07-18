@@ -5,14 +5,15 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ColorPanels, Dithering, DotGrid, DotOrbit, GodRays, GrainGradient, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, PulsingBorder, SimplexNoise, SmokeRing, Spiral, StaticMeshGradient, StaticRadialGradient, Swirl, Voronoi, Warp, Waves } from "@paper-design/shaders-react";
 import {
   BookOpen, Check, ChevronDown, CircleHelp, Code2, Copy, CopyPlus, Download, Droplets, Eye, EyeOff,
-  Gauge, ImageDown, Layers3, MousePointer2, Palette, Pause, Play, Redo2, RefreshCcw,
+  Gauge, ImageDown, Info, Layers3, MousePointer2, Palette, Pause, Play, Redo2, RefreshCcw,
   Minus, Pipette, Plus, Save, Scissors, Search, Settings2, Share2, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Video, WandSparkles, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { landingPageShaderSystemSkill } from "./landing-page-shader-system-skill";
 
-import type { AnimationClip, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExportTab, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, VideoExportSettings, VisualSection } from "./shader-studio/types";
+import type { AnimationClip, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExportTab, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupPanelSection, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, VideoExportSettings, VisualSection } from "./shader-studio/types";
 import { useStudioStore } from "./shader-studio/store";
 import { cameraDeltaFromPadDrag, cameraFromNavigatorCenter, emptyCameraGeometry, getCameraFrame, getCameraNavigatorSnapPoints, getNavigatorCenter, getPanoramaCameraFrame, resolveNavigatorHoverCenter, type CameraNavigatorHoverSnap } from "./shader-studio/geometry";
 import { mockupBorderStyles, mockupChromeStyles, outputFrames, videoFormats } from "./shader-studio/constants";
@@ -28,12 +29,42 @@ const MIN_TRAVEL = .12;
 const EXIT_RESERVE = .5;
 const SHARED_SHADER_PARAM = "shader";
 const SHARE_VERSION = 1;
+const ABOUT_SEEN_KEY = "shader-studio-about-seen";
 const isApplePlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
 const modKey = isApplePlatform ? "⌘" : "Ctrl";
 
 import { SAVED_PALETTES_KEY, SAVED_RECIPES_KEY, RESUME_RECIPE_KEY, SavedRecipePreview, ShaderCanvas, ShaderThumbnail, StaticStylePreview, appPresets, buildThemeOptions, capitalizeWords, companyThemeKey, companyThemes, defaultRecipe, formatPaperPropsForExport, fragmentShader, hexToRgb, isPaperStyle, mockupPresets, palettes, paperProps, paperShaderNames, paperSpeed, presetGroups, presetSettings, queryPaperShaderMount, queryShaderCanvas, recordCanvasAnimation, savedThemeKey, styleNames, tabs } from "./shader-studio/canvas";
 
 type SharedRecipe = Omit<Recipe, "id" | "glsl"> & { v: typeof SHARE_VERSION };
+
+const aboutRecipe: Recipe = {
+  id: "about-plasma",
+  name: "Plasma",
+  style: 9,
+  palette: ["#060914", "#273DFF", "#00DDFF", "#FFDE00", "#FF0000", "#000000"],
+  intensity: .8,
+  zoom: 1.12,
+  warp: .97,
+  contrast: .63,
+  speed: 2.04,
+  drift: .65,
+  blur: 0,
+  animate: true,
+  reverse: false,
+  grain: .0612,
+  rotate: 132 * Math.PI / 180,
+  offsetX: -.42,
+  offsetY: .49,
+  seed: 1,
+  smoothBlend: false,
+  cursorEnabled: true,
+  cursorEffect: "spotlight",
+  cursorStrength: .46,
+  cursorRadius: .21,
+  glsl: fragmentShader,
+};
+
+const aboutInfoRecipe: Recipe = { ...aboutRecipe, id: "about-info-plasma", cursorEnabled: false };
 
 function encodeSharedRecipe(recipe: Recipe) {
   const { id: _id, glsl: _glsl, ...settings } = recipe;
@@ -624,6 +655,9 @@ import { CameraPadScene, CameraPresetPreview, RightCameraInspector } from "./sha
 export function ShaderStudio() {
   const [recipe, setRecipe] = useState<Recipe>(defaultRecipe);
   const [tab, setTab] = useState<Tab>("visuals");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [mockupPanel, setMockupPanel] = useState<MockupPanelSection>("media");
+  const [isMobile, setIsMobile] = useState(false);
   const [frozen, setFrozen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -676,6 +710,8 @@ export function ShaderStudio() {
   const [cameraGeometry, setCameraGeometry] = useState<CameraGeometry>(emptyCameraGeometry);
   const [navigatorHover, setNavigatorHover] = useState<{ center: { x: number; y: number }; snap: CameraNavigatorHoverSnap } | null>(null);
   const [skillOpen, setSkillOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [infoShaderTick, setInfoShaderTick] = useState(0);
   const [alignmentGridVisible, setAlignmentGridVisible] = useState(false);
   const playheadRef = useRef(0);
   const baseDuration = 8;
@@ -690,6 +726,36 @@ export function ShaderStudio() {
     root.style.setProperty("--mockup-preview-media", mockup.mediaType === "image" && mockup.media ? `url("${mockup.media}")` : "none");
     return () => { root.style.removeProperty("--mockup-preview-media"); };
   }, [mockup.media, mockup.mediaType, mockup.rotate, mockup.scale, mockup.tiltX, mockup.tiltY]);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 760px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  useEffect(() => {
+    if (localStorage.getItem(ABOUT_SEEN_KEY) !== "1") setAboutOpen(true);
+  }, []);
+  const closeAbout = () => {
+    setAboutOpen(false);
+    localStorage.setItem(ABOUT_SEEN_KEY, "1");
+    setInfoShaderTick((tick) => tick + 1);
+  };
+  useEffect(() => {
+    if (!aboutOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") closeAbout(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [aboutOpen]);
+  useEffect(() => {
+    if (!drawerOpen || !isMobile) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setDrawerOpen(false); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [drawerOpen, isMobile]);
+  useEffect(() => {
+    if (!isMobile) setDrawerOpen(false);
+  }, [isMobile]);
   useEffect(() => { const stage = document.querySelector<HTMLElement>(".mockup-stage"); if (stage) stage.style.aspectRatio = mockupAspect === "auto" ? "" : mockupAspect; }, [mockupAspect]);
   useEffect(() => {
     if (tab !== "mockup") return;
@@ -1246,7 +1312,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       const first = createAnimationClip(0);
       setActiveClipId(first.id); return [first];
     });
-    setEditorMode("animation"); setMotionPreview("base");
+    setEditorMode("animation"); setMotionPreview("base"); setDrawerOpen(false);
   };
   const addAnimationClip = () => {
     const duration = Math.min(animationDuration, baseDuration);
@@ -1579,40 +1645,63 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     seekToClipTarget(updated);
   };
 
-  return <main className={`studio-shell ${editorMode === "animation" ? "animation-mode" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
-    <header className="topbar"><div className="brand"><span className="brand-mark">S</span><span>SHADER STUDIO</span></div><div className="top-actions"><button className="icon-button" onClick={undo} disabled={!history.length} aria-label="Undo"><Undo2 /></button><button className="icon-button" onClick={redo} disabled={!future.length} aria-label="Redo"><Redo2 /></button><button className="button ghost" onClick={shareCurrentRecipe}><Share2 />{shareCopied ? "Copied" : "Share"}</button><button className="button ghost" onClick={() => { setExportTab(tab === "mockup" || editorMode === "animation" ? "mockup" : "image"); setMockupExportOpen(true); }}><ImageDown /> Export</button><button className="button primary" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button primary" onClick={openSave}><Save /> Save preset</button></div></header>
-    <section className="workspace">
-      <nav className="icon-rail" aria-label="Shader controls"><div className={`rail-tabs ${editorMode === "animation" ? "mode-disabled" : ""}`}>{tabs.map(({ id, label, icon: Icon }) => <button key={id} disabled={editorMode === "animation"} className={`rail-tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)} aria-label={label}><Icon size={19} strokeWidth={1.8} /><span>{label}</span></button>)}</div><button type="button" className="rail-tab rail-skill" onClick={() => setSkillOpen(true)} aria-label="Open landing page shader skill"><BookOpen size={19} strokeWidth={1.8} /><span>Skill</span></button></nav>
-      <aside className={`inspector ${tab === "mockup" && editorMode === "animation" ? "mode-disabled" : ""}`}><div className={`inspector-scroll ${tab === "visuals" ? "inspector-scroll-visuals" : "scroll-fade scroll-fade-y scroll-fade-6 no-scrollbar"}`}>
+  const selectTab = (id: Tab) => {
+    if (isMobile) {
+      if (tab === id && drawerOpen) {
+        setDrawerOpen(false);
+        return;
+      }
+      setTab(id);
+      setDrawerOpen(true);
+      return;
+    }
+    setTab(id);
+  };
+  const openExport = () => {
+    setExportTab(tab === "mockup" || editorMode === "animation" ? "mockup" : "image");
+    setMockupExportOpen(true);
+  };
+  const renderCameraInspector = () => (
+    <RightCameraInspector
+      recipe={recipe}
+      mockup={mockup}
+      geometry={cameraGeometry}
+      mode={cameraMode}
+      tool2D={cameraTool2D}
+      tool3D={cameraTool3D}
+      hoverCenter={navigatorHover?.center ?? null}
+      hoverSnap={navigatorHover?.snap ?? null}
+      basePresetId={basePresetId}
+      onModeChange={setCameraDimension}
+      onTool2DChange={setCameraTool2D}
+      onTool3DChange={setCameraTool3D}
+      onChange={(update) => { updateMockup(update); setBasePresetId("custom"); }}
+      onPreset={useMockupPreset}
+      onResetCamera={resetCameraToCenter}
+      onPadPointerDown={beginCameraPadPointer}
+      onPadPointerMove={moveCameraPadPointer}
+      onPadPointerUp={endCameraPadPointer}
+      onPadPointerCancel={endCameraPadPointer}
+      onPadPointerLeave={() => { if (!cameraPadDrag.current) setNavigatorHover(null); }}
+      cameraPadRef={cameraPadRef}
+    />
+  );
+
+  return <main className={`studio-shell ${editorMode === "animation" ? "animation-mode" : ""}${isMobile && drawerOpen ? " drawer-open" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <header className="topbar"><div className="brand"><span className="brand-mark">S</span><span>SHADER STUDIO</span><Button variant="ghost" size="icon" className={`brand-info${infoShaderTick > 0 ? " is-revealing" : ""}`} onClick={() => setAboutOpen(true)} aria-label="About Shader Studio" aria-haspopup="dialog" aria-expanded={aboutOpen}>{infoShaderTick > 0 && <motion.span key={infoShaderTick} className="brand-info-shader" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 1, 0] }} transition={{ duration: 3, times: [0, 0.18, 0.72, 1], ease: "easeInOut" }} onAnimationComplete={() => setInfoShaderTick(0)} aria-hidden="true"><ShaderCanvas recipe={aboutInfoRecipe} frozen={false} onError={() => undefined} /></motion.span>}<Info strokeWidth={2.2} /></Button></div><div className="top-actions"><button className="icon-button" onClick={undo} disabled={!history.length} aria-label="Undo"><Undo2 /></button><button className="icon-button" onClick={redo} disabled={!future.length} aria-label="Redo"><Redo2 /></button><button className="button ghost" onClick={shareCurrentRecipe}><Share2 />{shareCopied ? "Copied" : "Share"}</button><button className="button ghost export-action" onClick={openExport}><ImageDown /> Export</button><button className="button primary copy-prompt-action" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button primary" onClick={openSave}><Save /> Save preset</button></div></header>
+    <section className={`workspace${tab === "mockup" ? " is-mockup-tab" : ""}`}>
+      <nav className="icon-rail" aria-label="Shader controls"><div className={`rail-tabs ${editorMode === "animation" ? "mode-disabled" : ""}`}>{tabs.map(({ id, label, icon: Icon }) => <button key={id} disabled={editorMode === "animation"} className={`rail-tab ${tab === id ? "active" : ""}`} onClick={() => selectTab(id)} aria-label={label}><Icon size={19} strokeWidth={1.8} /><span>{label}</span></button>)}</div><button type="button" className="rail-tab rail-skill" onClick={() => setSkillOpen(true)} aria-label="Open landing page shader skill"><BookOpen size={19} strokeWidth={1.8} /><span>Skill</span></button></nav>
+      {isMobile && drawerOpen && <button type="button" className="drawer-backdrop" aria-label="Close panel" onClick={() => setDrawerOpen(false)} />}
+      <aside className={`inspector ${tab === "mockup" && editorMode === "animation" ? "mode-disabled" : ""}${isMobile && drawerOpen ? " is-open" : ""}`}><div className="drawer-chrome"><span>{tab === "presets" ? "Presets" : tab === "visuals" ? "Visuals" : "Mockup"}</span><button type="button" className="drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Close panel"><X /></button></div><div className={`inspector-scroll ${tab === "visuals" ? "inspector-scroll-visuals" : "scroll-fade scroll-fade-y scroll-fade-6 no-scrollbar"}`}>
         {tab === "visuals" && <VisualsPanel recipe={recipe} activeLabel={activeLabel} selectedTheme={selectedTheme} setSelectedTheme={setSelectedTheme} onChange={change} onApplyTheme={applyTheme} onRandomize={randomizePalette} savedPalettes={savedPalettes} paletteName={paletteName} setPaletteName={setPaletteName} onSavePalette={saveCurrentPalette} onDeletePalette={deleteSavedPalette} onSelectPreset={selectPreset} />}
-        {tab === "presets" && <div className="panel-content presets-panel-content"><h2>Presets</h2><p className="helper">App defaults and your saved shader looks, ready to remix.</p>{availablePresets.length ? <><label className="preset-search"><Search /><input value={presetSearch} onChange={(event) => setPresetSearch(event.target.value)} placeholder="Search presets" aria-label="Search presets" />{presetSearch && <button type="button" onClick={() => setPresetSearch("")} aria-label="Clear preset search"><X /></button>}</label><div className="preset-library"><AnimatePresence initial={false} mode="popLayout">{filteredSaved.map((item, index) => <motion.button layout key={item.id} onClick={() => setRecipe(item)} aria-label={`Open preset ${item.name}`} initial={{ opacity: 0, y: 12, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: .985 }} transition={{ duration: .22, delay: Math.min(index * .025, .14), ease: [0.22, 1, 0.36, 1] }}><SavedRecipePreview recipe={item} /><span><b>{item.name}</b><em>{styleNames[item.style] ?? "Custom look"}</em></span></motion.button>)}</AnimatePresence>{!filteredSaved.length && <motion.p className="preset-search-empty" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>No presets match "{presetSearch}".</motion.p>}</div></> : <div className="presets-empty"><div className="presets-empty-icon"><WandSparkles /></div><h3>No presets yet</h3><p>Build a look in Visuals, then save it here for your next project.</p><button className="button primary" onClick={() => setTab("visuals")}><WandSparkles /> Tune visuals</button></div>}</div>}
-        {tab === "mockup" && <div className="editor-mode-switch" role="group" aria-label="Mockup editor mode"><button className={editorMode === "mockup" ? "active" : ""} onClick={() => setEditorMode("mockup")}>Mockup</button><button className={editorMode === "animation" ? "active" : ""} onClick={openAnimation} disabled={!basePresetId && !mockup.media} title={!basePresetId && !mockup.media ? "Upload media or choose a mockup preset first" : undefined}>Animation <Badge variant="secondary">Beta</Badge></button></div>}
-        {tab === "mockup" && <section className="output-frame-control"><div><span className="section-label">Output frame</span><p>Canvas, camera, animation, and export</p></div><div className="output-frame-grid">{outputFrames.map((frame) => <button key={frame.aspect} className={outputAspect === frame.aspect ? "selected" : ""} onClick={() => setOutputFrame(frame.aspect)} aria-pressed={outputAspect === frame.aspect}><i className={`output-frame-shape ratio-${frame.aspect.replace(":", "-")}`} /><span>{frame.aspect}</span><small>{frame.label}</small></button>)}</div></section>}
-        {tab === "mockup" && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline preload="metadata" /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid mockup-chrome-style-grid">{mockupChromeStyles.map((chrome) => <button key={chrome} type="button" onClick={() => updateMockup({ chrome })} className={mockup.chrome === chrome ? "selected" : ""}><i className={`chrome-sample ${chrome}`} aria-hidden="true" /><span>{chrome === "none" ? "None" : "Browser"}</span></button>)}</div><div className="section-label">Border style</div><div className="mockup-style-grid mockup-border-style-grid">{mockupBorderStyles.map((borderStyle) => <button key={borderStyle} type="button" onClick={() => updateMockup({ borderStyle })} className={mockup.borderStyle === borderStyle ? "selected" : ""}><i className={`frame-sample ${borderStyle}`} /><span>{borderStyle === "none" ? "Clean" : borderStyle}</span></button>)}</div><div className="section-label">Border rounding</div><div className="mockup-segment mockup-radius-segment"><button type="button" onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button type="button" onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button type="button" onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment mockup-shadow-segment"><button type="button" onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button type="button" onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button type="button" onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
+        {tab === "presets" && <div className="panel-content presets-panel-content"><h2>Presets</h2><p className="helper">App defaults and your saved shader looks, ready to remix.</p>{availablePresets.length ? <><label className="preset-search"><Search /><input value={presetSearch} onChange={(event) => setPresetSearch(event.target.value)} placeholder="Search presets" aria-label="Search presets" />{presetSearch && <button type="button" onClick={() => setPresetSearch("")} aria-label="Clear preset search"><X /></button>}</label><div className="preset-library"><AnimatePresence initial={false} mode="popLayout">{filteredSaved.map((item, index) => <motion.button layout key={item.id} onClick={() => setRecipe(item)} aria-label={`Open preset ${item.name}`} initial={{ opacity: 0, y: 12, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: .985 }} transition={{ duration: .22, delay: Math.min(index * .025, .14), ease: [0.22, 1, 0.36, 1] }}><SavedRecipePreview recipe={item} /><span><b>{item.name}</b><em>{styleNames[item.style] ?? "Custom look"}</em></span></motion.button>)}</AnimatePresence>{!filteredSaved.length && <motion.p className="preset-search-empty" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>No presets match "{presetSearch}".</motion.p>}</div></> : <div className="presets-empty"><div className="presets-empty-icon"><WandSparkles /></div><h3>No presets yet</h3><p>Build a look in Visuals, then save it here for your next project.</p><button className="button primary" onClick={() => selectTab("visuals")}><WandSparkles /> Tune visuals</button></div>}</div>}
+        {tab === "mockup" && <div className="mockup-panel-tabs" role="tablist" aria-label="Mockup sections"><button type="button" role="tab" aria-selected={mockupPanel === "media"} className={mockupPanel === "media" ? "active" : ""} onClick={() => setMockupPanel("media")}>Media</button><button type="button" role="tab" aria-selected={mockupPanel === "view"} className={mockupPanel === "view" ? "active" : ""} onClick={() => setMockupPanel("view")}>View</button></div>}
+        {tab === "mockup" && (!isMobile || mockupPanel === "view") && <div className="editor-mode-switch" role="group" aria-label="Mockup editor mode"><button className={editorMode === "mockup" ? "active" : ""} onClick={() => setEditorMode("mockup")}>Mockup</button><button className={editorMode === "animation" ? "active" : ""} onClick={openAnimation} disabled={!basePresetId && !mockup.media} title={!basePresetId && !mockup.media ? "Upload media or choose a mockup preset first" : undefined}>Animation <Badge variant="secondary">Beta</Badge></button></div>}
+        {tab === "mockup" && (!isMobile || mockupPanel === "view") && <section className="output-frame-control"><div><span className="section-label">Output frame</span><p>Canvas, camera, animation, and export</p></div><div className="output-frame-grid">{outputFrames.map((frame) => <button key={frame.aspect} className={outputAspect === frame.aspect ? "selected" : ""} onClick={() => setOutputFrame(frame.aspect)} aria-pressed={outputAspect === frame.aspect}><i className={`output-frame-shape ratio-${frame.aspect.replace(":", "-")}`} /><span>{frame.aspect}</span><small>{frame.label}</small></button>)}</div></section>}
+        {tab === "mockup" && (!isMobile || mockupPanel === "media") && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline preload="metadata" /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid mockup-chrome-style-grid">{mockupChromeStyles.map((chrome) => <button key={chrome} type="button" onClick={() => updateMockup({ chrome })} className={mockup.chrome === chrome ? "selected" : ""}><i className={`chrome-sample ${chrome}`} aria-hidden="true" /><span>{chrome === "none" ? "None" : "Browser"}</span></button>)}</div><div className="section-label">Border style</div><div className="mockup-style-grid mockup-border-style-grid">{mockupBorderStyles.map((borderStyle) => <button key={borderStyle} type="button" onClick={() => updateMockup({ borderStyle })} className={mockup.borderStyle === borderStyle ? "selected" : ""}><i className={`frame-sample ${borderStyle}`} /><span>{borderStyle === "none" ? "Clean" : borderStyle}</span></button>)}</div><div className="section-label">Border rounding</div><div className="mockup-segment mockup-radius-segment"><button type="button" onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button type="button" onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button type="button" onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment mockup-shadow-segment"><button type="button" onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button type="button" onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button type="button" onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
+        {tab === "mockup" && isMobile && mockupPanel === "view" && editorMode !== "animation" && renderCameraInspector()}
       </div><div className="local-recipes"><div className="section-label">Local recipes</div>{saved.length ? saved.slice(0, 3).map((item) => <button key={item.id} onClick={() => setRecipe(item)}>{item.name}<ChevronDown /></button>) : <span>Saved looks appear here.</span>}</div></aside>
-{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div className={`alignment-grid ${alignmentGridVisible ? "visible" : ""}`} aria-hidden="true" /><div ref={mockupStageRef} className={`mockup-stage chrome-${mockup.chrome} border-${mockup.borderStyle}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, ["--mockup-radius"]: `${mockup.radius}px`, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, visibility: mockup.visible ? "visible" : "hidden" } as CSSProperties}><div className="browser-bar" aria-hidden={mockup.chrome !== "browser"}><div className="browser-traffic"><i className="close" /><i className="minimize" /><i className="zoom" /></div><div className="browser-address"><span>your-product.com</span></div></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <button type="button" className="mockup-demo" onClick={() => mediaInput.current?.click()} aria-label="Upload images or videos" />}</div></div><RightCameraInspector
-            recipe={recipe}
-            mockup={mockup}
-            geometry={cameraGeometry}
-            mode={cameraMode}
-            tool2D={cameraTool2D}
-            tool3D={cameraTool3D}
-            hoverCenter={navigatorHover?.center ?? null}
-            hoverSnap={navigatorHover?.snap ?? null}
-            basePresetId={basePresetId}
-            onModeChange={setCameraDimension}
-            onTool2DChange={setCameraTool2D}
-            onTool3DChange={setCameraTool3D}
-            onChange={(update) => { updateMockup(update); setBasePresetId("custom"); }}
-            onPreset={useMockupPreset}
-            onResetCamera={resetCameraToCenter}
-            onPadPointerDown={beginCameraPadPointer}
-            onPadPointerMove={moveCameraPadPointer}
-            onPadPointerUp={endCameraPadPointer}
-            onPadPointerCancel={endCameraPadPointer}
-            onPadPointerLeave={() => { if (!cameraPadDrag.current) setNavigatorHover(null); }}
-            cameraPadRef={cameraPadRef}
-          /></>}
+{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div className={`alignment-grid ${alignmentGridVisible ? "visible" : ""}`} aria-hidden="true" /><div ref={mockupStageRef} className={`mockup-stage chrome-${mockup.chrome} border-${mockup.borderStyle}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, ["--mockup-radius"]: `${mockup.radius}px`, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, visibility: mockup.visible ? "visible" : "hidden" } as CSSProperties}><div className="browser-bar" aria-hidden={mockup.chrome !== "browser"}><div className="browser-traffic"><i className="close" /><i className="minimize" /><i className="zoom" /></div><div className="browser-address"><span>your-product.com</span></div></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <button type="button" className="mockup-demo" onClick={() => mediaInput.current?.click()} aria-label="Upload images or videos" />}</div></div>{!isMobile && renderCameraInspector()}</>}
         {tab === "mockup" && editorMode === "animation" && <>
          <aside className="motion-inspector">
           <div className="motion-header"><div><span className="eyebrow">SELECTED ANIMATION</span><h2>{activeClip?.label ?? "Animation"}</h2><p>Choose its destination, then fine-tune it.</p></div><div className="motion-header-actions"><button className="duplicate-animation" onClick={duplicateActiveClip} title="Duplicate animation" aria-label="Duplicate animation"><Copy /></button><button onClick={selectBaseMedia}>Edit base</button></div></div>
@@ -1652,7 +1741,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       </>}
       <section className={`canvas-area${tab === "mockup" ? " is-mockup" : ""}`}>
         <div className="canvas-frame">
-          <ShaderCanvas recipe={recipe} frozen={frozen || exportOpen || mockupExportOpen} onError={setError} />
+          <ShaderCanvas recipe={recipe} frozen={frozen || exportOpen || mockupExportOpen || aboutOpen} onError={setError} />
           {error && <div className="canvas-error"><CircleHelp /> Shader error — open Code to repair it.</div>}
         </div>
         <AnimatePresence initial={false}>
@@ -1676,6 +1765,61 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
         </AnimatePresence>
       </section>
     </section>
+    <nav className="mobile-dock" aria-label="Shader controls">
+      <div className={`mobile-dock-tabs ${editorMode === "animation" ? "mode-disabled" : ""}`}>
+        {tabs.map(({ id, label, icon: Icon }) => (
+          <button key={id} type="button" disabled={editorMode === "animation"} className={`mobile-dock-tab ${tab === id ? "active" : ""}${tab === id && drawerOpen ? " is-open" : ""}`} onClick={() => selectTab(id)} aria-label={label} aria-pressed={tab === id && drawerOpen}>
+            <Icon size={20} strokeWidth={1.8} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="mobile-dock-tab mobile-dock-skill" onClick={() => setSkillOpen(true)} aria-label="Open landing page shader skill">
+        <BookOpen size={20} strokeWidth={1.8} />
+        <span>Skill</span>
+      </button>
+    </nav>
+    <AnimatePresence>
+      {aboutOpen && (
+        <motion.div
+          className="about-backdrop"
+          role="presentation"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          onClick={closeAbout}
+          onKeyDown={(event) => event.key === "Escape" && closeAbout()}
+        >
+          <motion.div
+            className="about-shell"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 28 }}
+            transition={{ type: "spring", stiffness: 420, damping: 34 }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              className="about-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="about-title"
+              aria-describedby="about-desc"
+            >
+              <button type="button" className="about-close" onClick={closeAbout} aria-label="Close"><X /></button>
+              <div className="about-media">
+                <ShaderCanvas recipe={aboutRecipe} frozen={false} onError={() => undefined} />
+              </div>
+              <div className="about-body">
+                <h2 id="about-title">Shader Studio</h2>
+                <p id="about-desc">Free unlimited animated shaders you can customize, remix, and share. Export as image, video, React, GLSL, or an LLM-ready prompt for landing pages, product mockups, demo videos, and any creative work.</p>
+                <button type="button" className="button primary about-cta" onClick={closeAbout}>Start creating</button>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
     {saveOpen && <div className="modal-backdrop" role="presentation"><div className="save-modal" role="dialog" aria-modal="true" aria-labelledby="save-title"><button className="close" onClick={() => setSaveOpen(false)} aria-label="Close"><X /></button><h2 id="save-title">Save recipe</h2><p>Keep this shader configuration in this browser for later remixing.</p><input autoFocus value={saveName} onChange={(event) => setSaveName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && save()} /><button className="button primary wide" onClick={save}><Save /> Save locally</button></div></div>}
     {skillOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal skill-modal" role="dialog" aria-modal="true" aria-labelledby="skill-title" onKeyDown={(event) => event.key === "Escape" && setSkillOpen(false)}><button className="close" onClick={() => setSkillOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><h2 id="skill-title">Landing Page Shader System</h2><p>Copy into a top coding agent for a cohesive landing-page shader system.</p></div></div></div><div className="export-modal-body"><div className="code-surface skill-surface"><textarea value={landingPageShaderSystemSkill} readOnly spellCheck={false} aria-label="Landing page shader system skill" /><div className="source-actions skill-cta-wrap"><button type="button" className="button primary wide skill-cta" onClick={() => copyText(landingPageShaderSystemSkill, "Skill copied")} aria-live="polite"><span className="skill-cta-label">{copied ? "Copied" : "Copy skill"}</span></button></div></div></div></div></div>}
     {exportOpen && <div className="modal-backdrop" role="presentation"><div className={`export-modal${exportTab === "variations" ? " variations-export-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="export-title"><button className="close" onClick={() => setExportOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><h2 id="export-title">Export shader</h2><p>Take the current look into your project in the format you need.</p></div></div><div className="export-tabs" role="tablist">{(["image", "video", "variations", "prompt", "react", "glsl"] as ExportTab[]).map((item) => <button key={item} className={exportTab === item ? "active" : ""} onClick={() => setExportTab(item)} role="tab" aria-selected={exportTab === item}>{exportTabLabel(item)}</button>)}</div></div><div className="export-modal-body">{exportTab === "image" && <ImageExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportPng} description="Cursor interactions are excluded from exports." />}{exportTab === "video" && <FullVideoExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportVideo} videoProgress={videoProgress} />}{exportTab === "variations" && <VariationsExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onApplyToCanvas={(next) => change(next)} />}{exportTab === "prompt" && <SourceSurface title="Build prompt" helper="A complete implementation prompt generated from the active shader configuration." source={buildPrompt()} footer={<><button className="button primary wide" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button wide ghost" onClick={() => exportText(buildPrompt(), "shader-studio-prompt.txt", "text/plain")}><Download /> Download .txt</button></>} />}{exportTab === "react" && <SourceSurface title="React component" helper={isPaperStyle(recipe.style) ? "A Paper Design component configured with your current palette, motion, and surface settings." : "A self-contained recipe and fragment shader ready to paste into a client component."} source={reactCode} footer={<><button className="button primary wide" onClick={() => copyText(reactCode, "React component copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy React code"}</button><button className="button wide ghost" onClick={() => exportText(reactCode, "shader-studio-shader.ts", "text/plain")}><Download /> Download .ts</button></>} />}{exportTab === "glsl" && <SourceSurface title="Fragment GLSL" helper={isPaperStyle(recipe.style) ? "Paper Design shaders ship with internal GLSL. Use React export for production code." : "The exact fragment shader currently driving the preview."} source={glslExportSource} footer={<><button className="button primary wide" onClick={() => copyText(glslExportSource, isPaperStyle(recipe.style) ? "Paper props copied" : "GLSL copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : isPaperStyle(recipe.style) ? "Copy props" : "Copy GLSL"}</button><button className="button wide ghost" onClick={() => exportText(glslExportSource, isPaperStyle(recipe.style) ? "shader-studio-paper-props.json" : "shader-studio-shader.glsl", isPaperStyle(recipe.style) ? "application/json" : "text/plain")}><Download /> Download {isPaperStyle(recipe.style) ? ".json" : ".glsl"}</button></>} />}</div></div></div>}
