@@ -13,7 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { landingPageShaderSystemSkill } from "./landing-page-shader-system-skill";
 
-import type { AnimationClip, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExportTab, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupPanelSection, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, VideoExportSettings, VisualSection } from "./shader-studio/types";
+import type { AnimationClip, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExitStyle, ExportTab, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupPanelSection, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, TypeBlock, VideoExportSettings, VisualSection } from "./shader-studio/types";
+import { MAX_TYPE_BLOCKS, TypeCanvasLayer, TypePanel, createTypeBlock, typePresets } from "./shader-studio/type-layer";
 import { useStudioStore } from "./shader-studio/store";
 import { cameraDeltaFromPadDrag, cameraFromNavigatorCenter, emptyCameraGeometry, getCameraFrame, getCameraNavigatorSnapPoints, getNavigatorCenter, getPanoramaCameraFrame, resolveNavigatorHoverCenter, type CameraNavigatorHoverSnap } from "./shader-studio/geometry";
 import { mockupBorderStyles, mockupChromeStyles, outputFrames, videoFormats } from "./shader-studio/constants";
@@ -657,6 +658,8 @@ export function ShaderStudio() {
   const [tab, setTab] = useState<Tab>("visuals");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mockupPanel, setMockupPanel] = useState<MockupPanelSection>("media");
+  const [typeBlocks, setTypeBlocks] = useState<TypeBlock[]>([]);
+  const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [frozen, setFrozen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -934,7 +937,7 @@ export function ShaderStudio() {
     change({ palette: [...option.colors] });
     toast(`${option.name} theme applied`);
   };
-  const remix = () => { change(remixRecipe(recipe)); toast("Shader remixed — style and colours kept"); };
+  const remix = () => { change(remixRecipe(recipe)); toast("Shader remixed — new style and surface"); };
   const restyle = () => { change(restyleRecipe(recipe)); toast("Style changed — palette kept"); };
   const inspire = () => { change(inspireRecipe()); };
   const exportText = (content: string, filename: string, type: string) => { const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([content], { type })); link.download = filename; link.click(); URL.revokeObjectURL(link.href); };
@@ -1260,6 +1263,68 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     return availablePresets.filter((item) => `${item.name} ${styleNames[item.style] ?? "Custom look"}`.toLowerCase().includes(query));
   }, [availablePresets, presetSearch]);
   const updateMockup = (update: Partial<MockupSettings>) => setMockup((current) => ({ ...current, ...update }));
+  const updateTypeBlock = (id: string, update: Partial<TypeBlock>) => {
+    setTypeBlocks((blocks) => blocks.map((block) => block.id === id ? { ...block, ...update } : block));
+  };
+  const selectTypeBlock = (id: string | null) => {
+    setSelectedTypeId(id);
+    if (id) {
+      setMockupPanel("type");
+      if (tab !== "mockup") setTab("mockup");
+    }
+  };
+  const addTypeBlock = () => {
+    if (typeBlocks.length >= MAX_TYPE_BLOCKS) {
+      toast(`Limit ${MAX_TYPE_BLOCKS} text blocks`);
+      return;
+    }
+    const block = createTypeBlock({
+      ...typePresets[0].partial,
+      x: 50 + (typeBlocks.length % 2 === 0 ? 0 : 4),
+      y: 40 + typeBlocks.length * 8,
+    });
+    setTypeBlocks((blocks) => [...blocks, block]);
+    setSelectedTypeId(block.id);
+    setMockupPanel("type");
+    toast("Headline added");
+  };
+  const applyTypePreset = (presetId: string) => {
+    const preset = typePresets.find((item) => item.id === presetId);
+    if (!preset) return;
+    if (selectedTypeId) {
+      updateTypeBlock(selectedTypeId, { ...preset.partial });
+      toast(`${preset.label} applied`);
+      return;
+    }
+    if (typeBlocks.length >= MAX_TYPE_BLOCKS) {
+      toast(`Limit ${MAX_TYPE_BLOCKS} text blocks`);
+      return;
+    }
+    const block = createTypeBlock(preset.partial);
+    setTypeBlocks((blocks) => [...blocks, block]);
+    setSelectedTypeId(block.id);
+    toast(`${preset.label} added`);
+  };
+  const duplicateTypeBlock = (id: string) => {
+    if (typeBlocks.length >= MAX_TYPE_BLOCKS) {
+      toast(`Limit ${MAX_TYPE_BLOCKS} text blocks`);
+      return;
+    }
+    const source = typeBlocks.find((block) => block.id === id);
+    if (!source) return;
+    const block = createTypeBlock({
+      ...source,
+      x: Math.min(92, source.x + 3),
+      y: Math.min(92, source.y + 4),
+    });
+    setTypeBlocks((blocks) => [...blocks, block]);
+    setSelectedTypeId(block.id);
+  };
+  const removeTypeBlock = (id: string) => {
+    setTypeBlocks((blocks) => blocks.filter((block) => block.id !== id));
+    setSelectedTypeId((current) => current === id ? null : current);
+  };
+  const typeLayerInteractive = tab === "mockup" && mockupPanel === "type" && editorMode === "mockup";
   const loadFile = (file: File) => { if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) { toast.error("Choose an image or video"); return; } const reader = new FileReader(); reader.onload = () => { const centered = mockupPresets[0]; updateMockup({ media: String(reader.result), mediaType: file.type.startsWith("video/") ? "video" : "image", ...centered.settings }); setBasePresetId(centered.id); toast("Centered mockup preset applied"); }; reader.readAsDataURL(file); };
   const loadMockupMedia = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) loadFile(file); };
   const handleDrop = (event: DragEvent<HTMLElement>) => { event.preventDefault(); const file = event.dataTransfer.files?.[0]; if (file) loadFile(file); };
@@ -1286,7 +1351,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   const createAnimationClip = (start: number, duration = Math.min(animationDuration, baseDuration)): AnimationClip => ({
     id: crypto.randomUUID(), label: cameraMode === "tilt" ? "Tilt" : "Zoom", presetId: focusPresetId, start, duration,
     transition: Math.min(animationTransition, Math.max(MIN_TRAVEL, duration - EXIT_RESERVE)), easing: animationEasing, zoom: focusZoom, tilt: focusTilt, hold: Math.min(animationHold, duration * .3), springSpeed,
-    targetX: mockup.x, targetY: mockup.y, targetTiltX: focusPreset.settings.tiltX, targetTiltY: focusPreset.settings.tiltY, targetRotate: focusPreset.settings.rotate, cameraX: focusPreset.settings.cameraX, cameraY: focusPreset.settings.cameraY, exit: "base", hidden: false,
+    targetX: mockup.x, targetY: mockup.y, targetTiltX: focusPreset.settings.tiltX, targetTiltY: focusPreset.settings.tiltY, targetRotate: focusPreset.settings.rotate, cameraX: focusPreset.settings.cameraX, cameraY: focusPreset.settings.cameraY, exit: "base", exitStyle: "camera", hidden: false,
   });
   const findClipGap = (duration: number, excludeId?: string, preferredStart = 0) => {
     const others = animationClips.filter((clip) => clip.id !== excludeId).sort((a, b) => a.start - b.start);
@@ -1508,6 +1573,36 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
         : motionProgress((localTime - travel - hold) / exitDuration, clip);
     return localTime <= travel + hold ? interpolateMockup(mockup, target, progress) : interpolateMockup(target, exitState, progress);
   };
+  const exitPhaseProgress = (clip: AnimationClip): number | null => {
+    const localTime = playhead - clip.start;
+    const hold = Math.min(clip.hold, clip.duration * .3);
+    if (isLinkedFromPrevious(clip)) {
+      if (localTime <= hold) return null;
+      return Math.max(0, Math.min(1, (localTime - hold) / Math.max(.01, clip.duration - hold)));
+    }
+    const travel = Math.min(clip.transition, Math.max(MIN_TRAVEL, clip.duration - hold - EXIT_RESERVE));
+    if (localTime <= travel + hold) return null;
+    return Math.max(0, Math.min(1, (localTime - travel - hold) / Math.max(.01, clip.duration - travel - hold)));
+  };
+  const stageExitFx = (clip: AnimationClip | undefined): { opacity: number; filter: string } => {
+    if (!clip) return { opacity: 1, filter: "none" };
+    const style = clip.exitStyle;
+    if (style === "camera") return { opacity: 1, filter: "none" };
+    const phase = exitPhaseProgress(clip);
+    if (phase === null) return { opacity: 1, filter: "none" };
+    const bell = Math.sin(Math.PI * phase);
+    switch (style) {
+      case "crossfade":
+        return { opacity: 1 - bell * .9, filter: "none" };
+      case "blur":
+        return { opacity: 1 - bell * .1, filter: `blur(${(bell * 18).toFixed(2)}px)` };
+      default: {
+        const _exhaustive: never = style;
+        void _exhaustive;
+        return { opacity: 1, filter: "none" };
+      }
+    }
+  };
   const stageTransform = (state: MockupSettings) => {
     const frame = getCameraFrame(state, cameraGeometry);
     const panX = -state.cameraX / 50 * frame.panLimitX;
@@ -1518,6 +1613,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       : `${placement} rotate(${state.rotate}deg)`;
   };
   const stageMockup = editorMode === "animation" && previewClip ? animationState(previewClip) : mockup;
+  const exitFx = editorMode === "animation" && previewClip && !typeLayerInteractive ? stageExitFx(previewClip) : { opacity: 1, filter: "none" };
   const menuClip = clipMenu ? animationClips.find((clip) => clip.id === clipMenu.clipId) : undefined;
   const canSmartSplit = Boolean(menuClip && playhead > menuClip.start + .05 && playhead < menuClip.start + menuClip.duration - .05
     && playhead - menuClip.start >= MIN_CLIP_DURATION
@@ -1695,18 +1791,68 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       <aside className={`inspector ${tab === "mockup" && editorMode === "animation" ? "mode-disabled" : ""}${isMobile && drawerOpen ? " is-open" : ""}`}><div className="drawer-chrome"><span>{tab === "presets" ? "Presets" : tab === "visuals" ? "Visuals" : "Mockup"}</span><button type="button" className="drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Close panel"><X /></button></div><div className={`inspector-scroll ${tab === "visuals" ? "inspector-scroll-visuals" : "scroll-fade scroll-fade-y scroll-fade-6 no-scrollbar"}`}>
         {tab === "visuals" && <VisualsPanel recipe={recipe} activeLabel={activeLabel} selectedTheme={selectedTheme} setSelectedTheme={setSelectedTheme} onChange={change} onApplyTheme={applyTheme} onRandomize={randomizePalette} savedPalettes={savedPalettes} paletteName={paletteName} setPaletteName={setPaletteName} onSavePalette={saveCurrentPalette} onDeletePalette={deleteSavedPalette} onSelectPreset={selectPreset} />}
         {tab === "presets" && <div className="panel-content presets-panel-content"><h2>Presets</h2><p className="helper">App defaults and your saved shader looks, ready to remix.</p>{availablePresets.length ? <><label className="preset-search"><Search /><input value={presetSearch} onChange={(event) => setPresetSearch(event.target.value)} placeholder="Search presets" aria-label="Search presets" />{presetSearch && <button type="button" onClick={() => setPresetSearch("")} aria-label="Clear preset search"><X /></button>}</label><div className="preset-library"><AnimatePresence initial={false} mode="popLayout">{filteredSaved.map((item, index) => <motion.button layout key={item.id} onClick={() => setRecipe(item)} aria-label={`Open preset ${item.name}`} initial={{ opacity: 0, y: 12, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: .985 }} transition={{ duration: .22, delay: Math.min(index * .025, .14), ease: [0.22, 1, 0.36, 1] }}><SavedRecipePreview recipe={item} /><span><b>{item.name}</b><em>{styleNames[item.style] ?? "Custom look"}</em></span></motion.button>)}</AnimatePresence>{!filteredSaved.length && <motion.p className="preset-search-empty" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>No presets match "{presetSearch}".</motion.p>}</div></> : <div className="presets-empty"><div className="presets-empty-icon"><WandSparkles /></div><h3>No presets yet</h3><p>Build a look in Visuals, then save it here for your next project.</p><button className="button primary" onClick={() => selectTab("visuals")}><WandSparkles /> Tune visuals</button></div>}</div>}
-        {tab === "mockup" && <div className="mockup-panel-tabs" role="tablist" aria-label="Mockup sections"><button type="button" role="tab" aria-selected={mockupPanel === "media"} className={mockupPanel === "media" ? "active" : ""} onClick={() => setMockupPanel("media")}>Media</button><button type="button" role="tab" aria-selected={mockupPanel === "view"} className={mockupPanel === "view" ? "active" : ""} onClick={() => setMockupPanel("view")}>View</button></div>}
-        {tab === "mockup" && (!isMobile || mockupPanel === "view") && <div className="editor-mode-switch" role="group" aria-label="Mockup editor mode"><button className={editorMode === "mockup" ? "active" : ""} onClick={() => setEditorMode("mockup")}>Mockup</button><button className={editorMode === "animation" ? "active" : ""} onClick={openAnimation} disabled={!basePresetId && !mockup.media} title={!basePresetId && !mockup.media ? "Upload media or choose a mockup preset first" : undefined}>Animation <Badge variant="secondary">Beta</Badge></button></div>}
-        {tab === "mockup" && (!isMobile || mockupPanel === "view") && <section className="output-frame-control"><div><span className="section-label">Output frame</span><p>Canvas, camera, animation, and export</p></div><div className="output-frame-grid">{outputFrames.map((frame) => <button key={frame.aspect} className={outputAspect === frame.aspect ? "selected" : ""} onClick={() => setOutputFrame(frame.aspect)} aria-pressed={outputAspect === frame.aspect}><i className={`output-frame-shape ratio-${frame.aspect.replace(":", "-")}`} /><span>{frame.aspect}</span><small>{frame.label}</small></button>)}</div></section>}
-        {tab === "mockup" && (!isMobile || mockupPanel === "media") && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline preload="metadata" /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid mockup-chrome-style-grid">{mockupChromeStyles.map((chrome) => <button key={chrome} type="button" onClick={() => updateMockup({ chrome })} className={mockup.chrome === chrome ? "selected" : ""}><i className={`chrome-sample ${chrome}`} aria-hidden="true" /><span>{chrome === "none" ? "None" : "Browser"}</span></button>)}</div><div className="section-label">Border style</div><div className="mockup-style-grid mockup-border-style-grid">{mockupBorderStyles.map((borderStyle) => <button key={borderStyle} type="button" onClick={() => updateMockup({ borderStyle })} className={mockup.borderStyle === borderStyle ? "selected" : ""}><i className={`frame-sample ${borderStyle}`} /><span>{borderStyle === "none" ? "Clean" : borderStyle}</span></button>)}</div><div className="section-label">Border rounding</div><div className="mockup-segment mockup-radius-segment"><button type="button" onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button type="button" onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button type="button" onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment mockup-shadow-segment"><button type="button" onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button type="button" onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button type="button" onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
+        {tab === "mockup" && <div className="mockup-panel-tabs" role="tablist" aria-label="Mockup sections"><button type="button" role="tab" aria-selected={mockupPanel === "media"} className={mockupPanel === "media" ? "active" : ""} onClick={() => setMockupPanel("media")}>Media</button><button type="button" role="tab" aria-selected={mockupPanel === "type"} className={mockupPanel === "type" ? "active" : ""} onClick={() => setMockupPanel("type")}>Type</button><button type="button" role="tab" aria-selected={mockupPanel === "view"} className={mockupPanel === "view" ? "active" : ""} onClick={() => setMockupPanel("view")}>View</button></div>}
+        {tab === "mockup" && (mockupPanel === "view" || (!isMobile && mockupPanel === "media")) && <div className="editor-mode-switch" role="group" aria-label="Mockup editor mode"><button className={editorMode === "mockup" ? "active" : ""} onClick={() => setEditorMode("mockup")}>Mockup</button><button className={editorMode === "animation" ? "active" : ""} onClick={openAnimation} disabled={!basePresetId && !mockup.media} title={!basePresetId && !mockup.media ? "Upload media or choose a mockup preset first" : undefined}>Animation <Badge variant="secondary">Beta</Badge></button></div>}
+        {tab === "mockup" && (mockupPanel === "view" || (!isMobile && mockupPanel === "media")) && <section className="output-frame-control"><div><span className="section-label">Output frame</span><p>Canvas, camera, animation, and export</p></div><div className="output-frame-grid">{outputFrames.map((frame) => <button key={frame.aspect} className={outputAspect === frame.aspect ? "selected" : ""} onClick={() => setOutputFrame(frame.aspect)} aria-pressed={outputAspect === frame.aspect}><i className={`output-frame-shape ratio-${frame.aspect.replace(":", "-")}`} /><span>{frame.aspect}</span><small>{frame.label}</small></button>)}</div></section>}
+        {tab === "mockup" && mockupPanel === "type" && (
+          <TypePanel
+            blocks={typeBlocks}
+            selectedId={selectedTypeId}
+            onSelect={selectTypeBlock}
+            onAdd={addTypeBlock}
+            onPreset={applyTypePreset}
+            onUpdate={updateTypeBlock}
+            onDuplicate={duplicateTypeBlock}
+            onRemove={removeTypeBlock}
+          />
+        )}
+        {tab === "mockup" && mockupPanel === "media" && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline preload="metadata" /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid mockup-chrome-style-grid">{mockupChromeStyles.map((chrome) => <button key={chrome} type="button" onClick={() => updateMockup({ chrome })} className={mockup.chrome === chrome ? "selected" : ""}><i className={`chrome-sample ${chrome}`} aria-hidden="true" /><span>{chrome === "none" ? "None" : "Browser"}</span></button>)}</div><div className="section-label">Border style</div><div className="mockup-style-grid mockup-border-style-grid">{mockupBorderStyles.map((borderStyle) => <button key={borderStyle} type="button" onClick={() => updateMockup({ borderStyle })} className={mockup.borderStyle === borderStyle ? "selected" : ""}><i className={`frame-sample ${borderStyle}`} /><span>{borderStyle === "none" ? "Clean" : borderStyle}</span></button>)}</div><div className="section-label">Border rounding</div><div className="mockup-segment mockup-radius-segment"><button type="button" onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button type="button" onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button type="button" onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment mockup-shadow-segment"><button type="button" onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button type="button" onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button type="button" onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
+        {tab === "mockup" && mockupPanel === "view" && !isMobile && <div className="panel-content type-view-hint"><p className="helper">Camera, tilt, and layout presets stay in the right inspector. Type lives on the field under Media → Type.</p></div>}
         {tab === "mockup" && isMobile && mockupPanel === "view" && editorMode !== "animation" && renderCameraInspector()}
       </div><div className="local-recipes"><div className="section-label">Local recipes</div>{saved.length ? saved.slice(0, 3).map((item) => <button key={item.id} onClick={() => setRecipe(item)}>{item.name}<ChevronDown /></button>) : <span>Saved looks appear here.</span>}</div></aside>
-{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div className={`alignment-grid ${alignmentGridVisible ? "visible" : ""}`} aria-hidden="true" /><div ref={mockupStageRef} className={`mockup-stage chrome-${mockup.chrome} border-${mockup.borderStyle}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, ["--mockup-radius"]: `${mockup.radius}px`, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, visibility: mockup.visible ? "visible" : "hidden" } as CSSProperties}><div className="browser-bar" aria-hidden={mockup.chrome !== "browser"}><div className="browser-traffic"><i className="close" /><i className="minimize" /><i className="zoom" /></div><div className="browser-address"><span>your-product.com</span></div></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <button type="button" className="mockup-demo" onClick={() => mediaInput.current?.click()} aria-label="Upload images or videos" />}</div></div>{!isMobile && renderCameraInspector()}</>}
+{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div className={`alignment-grid ${alignmentGridVisible ? "visible" : ""}`} aria-hidden="true" /><TypeCanvasLayer blocks={typeBlocks} selectedId={selectedTypeId} interactive={typeLayerInteractive} onSelect={selectTypeBlock} onChange={updateTypeBlock} /><div ref={mockupStageRef} className={`mockup-stage chrome-${mockup.chrome} border-${mockup.borderStyle}${typeLayerInteractive ? " is-type-editing" : ""}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, ["--mockup-radius"]: `${mockup.radius}px`, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, opacity: exitFx.opacity, filter: exitFx.filter, visibility: mockup.visible ? "visible" : "hidden" } as CSSProperties}><div className="browser-bar" aria-hidden={mockup.chrome !== "browser"}><div className="browser-traffic"><i className="close" /><i className="minimize" /><i className="zoom" /></div><div className="browser-address"><span>your-product.com</span></div></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <button type="button" className="mockup-demo" onClick={() => mediaInput.current?.click()} aria-label="Upload images or videos" />}</div></div>{!isMobile && renderCameraInspector()}</>}
         {tab === "mockup" && editorMode === "animation" && <>
          <aside className="motion-inspector">
           <div className="motion-header"><div><span className="eyebrow">SELECTED ANIMATION</span><h2>{activeClip?.label ?? "Animation"}</h2><p>Choose its destination, then fine-tune it.</p></div><div className="motion-header-actions"><button className="duplicate-animation" onClick={duplicateActiveClip} title="Duplicate animation" aria-label="Duplicate animation"><Copy /></button><button onClick={selectBaseMedia}>Edit base</button></div></div>
           <Slider label="Transition" value={activeClip?.transition ?? animationTransition} min={MIN_TRAVEL} max={activeClip?.duration ?? baseDuration} step={.1} unit="s" onChange={(transition) => { if (!activeClip) return; const updated = { ...activeClip, transition: Math.min(transition, Math.max(MIN_TRAVEL, activeClip.duration - EXIT_RESERVE)) }; setAnimationTransition(updated.transition); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} trailing={<button type="button" className={`curve-toggle ${activeClip?.easing ?? animationEasing}`} aria-label={`Switch to ${activeClip?.easing === "spring" ? "ease" : "spring"} curve`} title={activeClip?.easing === "spring" ? "Spring curve — click for ease" : "Ease curve — click for spring"} onClick={(event) => { event.preventDefault(); if (!activeClip) return; const easing = activeClip.easing === "spring" ? "ease" as const : "spring" as const; const updated = { ...activeClip, easing }; setAnimationEasing(easing); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); toast(`${easing === "spring" ? "Spring" : "Ease"} motion applied`); }}><i aria-hidden="true" /></button>} />
-          <div className="motion-exit-control"><span>After this animation</span><div><button className={activeClip?.exit === "base" ? "active" : ""} onClick={() => activeClip && setAnimationClips((clips) => clips.map((clip) => clip.id === activeClip.id ? { ...clip, exit: "base" } : clip))}>Return to base</button><button disabled={!activeClip || !nextClip} className={activeClip?.exit === "next" ? "active" : ""} onClick={() => { if (!activeClip || !nextClip) return; const nextStart = activeClip.start + activeClip.duration; setAnimationClips((clips) => clips.map((clip) => clip.id === activeClip.id ? { ...clip, exit: "next" } : clip.id === nextClip.id ? { ...clip, start: nextStart } : clip)); toast(`Flows into ${nextClip.label}`); }}>Continue to next</button></div>{nextClip ? <small>Flows into {nextClip.label} instead of returning to base.</small> : <small>Add another animation to create a continuation.</small>}</div>
+          <div className="motion-exit-control">
+            <span>After this animation</span>
+            <div>
+              <button className={activeClip?.exit === "base" ? "active" : ""} onClick={() => activeClip && setAnimationClips((clips) => clips.map((clip) => clip.id === activeClip.id ? { ...clip, exit: "base" } : clip))}>Return to base</button>
+              <button disabled={!activeClip || !nextClip} className={activeClip?.exit === "next" ? "active" : ""} onClick={() => { if (!activeClip || !nextClip) return; const nextStart = activeClip.start + activeClip.duration; setAnimationClips((clips) => clips.map((clip) => clip.id === activeClip.id ? { ...clip, exit: "next" } : clip.id === nextClip.id ? { ...clip, start: nextStart } : clip)); toast(`Flows into ${nextClip.label}`); }}>Continue to next</button>
+            </div>
+            <span>Transition style</span>
+            <div className="motion-exit-style" role="group" aria-label="Exit transition style">
+              {([
+                { id: "camera" as const, label: "Camera" },
+                { id: "crossfade" as const, label: "Crossfade" },
+                { id: "blur" as const, label: "Blur morph" },
+              ]).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={(activeClip?.exitStyle ?? "camera") === option.id ? "active" : ""}
+                  onClick={() => {
+                    if (!activeClip) return;
+                    const exitStyle: ExitStyle = option.id;
+                    setAnimationClips((clips) => clips.map((clip) => clip.id === activeClip.id ? { ...clip, exitStyle } : clip));
+                    toast(exitStyle === "camera" ? "Camera transition" : exitStyle === "crossfade" ? "Crossfade exit" : "Blur morph exit");
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <small>
+              {activeClip?.exitStyle === "crossfade"
+                ? "Dissolves through opacity as the camera leaves."
+                : activeClip?.exitStyle === "blur"
+                  ? "Soft blur peaks mid-exit for a morph feel."
+                  : nextClip
+                    ? `Flows into ${nextClip.label} instead of returning to base.`
+                    : "Add another animation to create a continuation."}
+            </small>
+          </div>
           <div className="camera-tabs" role="tablist" aria-label="Animation transform space"><button type="button" role="tab" aria-selected={cameraMode === "zoom"} className={cameraMode === "zoom" ? "active" : ""} onClick={() => setCameraDimension("zoom")}>2D</button><button type="button" role="tab" aria-selected={cameraMode === "tilt"} className={cameraMode === "tilt" ? "active" : ""} onClick={() => setCameraDimension("tilt")}>3D</button><button type="button" className="precision-toggle" onClick={() => setPrecisionOpen((value) => !value)}>{precisionOpen ? "Simple" : "Precision"}</button></div>
           {cameraMode === "zoom" ? (
             <div className="camera-subtabs" role="tablist" aria-label="2D animation tools">
@@ -1742,6 +1888,15 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       <section className={`canvas-area${tab === "mockup" ? " is-mockup" : ""}`}>
         <div className="canvas-frame">
           <ShaderCanvas recipe={recipe} frozen={frozen || exportOpen || mockupExportOpen || aboutOpen} onError={setError} />
+          {tab !== "mockup" && (
+            <TypeCanvasLayer
+              blocks={typeBlocks}
+              selectedId={selectedTypeId}
+              interactive={false}
+              onSelect={selectTypeBlock}
+              onChange={updateTypeBlock}
+            />
+          )}
           {error && <div className="canvas-error"><CircleHelp /> Shader error — open Code to repair it.</div>}
         </div>
         <AnimatePresence initial={false}>
@@ -1757,7 +1912,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
             <div className="canvas-dock">
               <button data-tooltip="Create a completely new shader recipe" onClick={inspire}><CircleHelp /> Inspire</button>
               <button data-tooltip="Keep the style and settings; choose new colours" onClick={recolour}><Droplets /> Recolour</button>
-              <button data-tooltip="Keep the style and colours; replace only the settings" onClick={remix}><WandSparkles /> Remix</button>
+              <button data-tooltip="New style and surface; keep colours, motion, and cursor" onClick={remix}><WandSparkles /> Remix</button>
               <button data-tooltip="Choose a new shader style while keeping the palette" onClick={restyle}><WandSparkles /> Restyle</button>
               <button data-tooltip={frozen ? "Resume the live preview" : "Freeze the live preview"} onClick={() => setFrozen((value) => !value)} aria-pressed={frozen}>{frozen ? <Play /> : <Pause />}{frozen ? "Play" : "Freeze"}</button>
             </div>
