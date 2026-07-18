@@ -6,6 +6,31 @@ import { ShaderCanvas, mockupPresets } from "./canvas";
 import { getCameraFrame, getPanoramaCameraFrame } from "./geometry";
 import type { CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, MockupSettings, Recipe } from "./types";
 
+/** Static first-frame preview — never autoplays (main stage owns playback). */
+function PausedMockupVideo({ src }: { src: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    video.pause();
+    const showFirstFrame = () => {
+      if (video.readyState >= 1 && video.currentTime === 0) {
+        try { video.currentTime = 0.001; } catch { /* ignore seek errors on some codecs */ }
+      }
+    };
+    video.addEventListener("loadedmetadata", showFirstFrame);
+    showFirstFrame();
+    return () => video.removeEventListener("loadedmetadata", showFirstFrame);
+  }, [src]);
+  return <video ref={ref} src={src} muted playsInline preload="metadata" />;
+}
+
+function MockupPreviewMedia({ mockup }: { mockup: MockupSettings }) {
+  if (mockup.media && mockup.mediaType === "video") return <PausedMockupVideo src={mockup.media} />;
+  if (mockup.media) return <img src={mockup.media} alt="Current mockup media" />;
+  return <div className="camera-preview-demo"><span>THE NEXT RELEASE</span><b>Make the work<br />feel inevitable.</b></div>;
+}
+
 export function CameraPadScene({ recipe, mockup, geometry, camera }: { recipe: Recipe; mockup: MockupSettings; geometry: CameraGeometry; camera: Pick<MockupSettings, "scale" | "cameraX" | "cameraY" | "x" | "y" | "rotate"> }) {
   const frame = getCameraFrame(camera, geometry);
   const panX = -camera.cameraX / 50 * frame.panLimitX * frame.previewScale;
@@ -15,7 +40,7 @@ export function CameraPadScene({ recipe, mockup, geometry, camera }: { recipe: R
   return <>
     <ShaderCanvas recipe={recipe} frozen onError={() => undefined} />
     <div className="camera-preview-media" style={{ width: geometry.stageWidth * frame.previewScale, height: geometry.stageHeight * frame.previewScale, transform: `translate(-50%, -50%) translate(${offsetX + panX}px, ${offsetY + panY}px) scale(${frame.renderScale}) rotate(${camera.rotate}deg)` }}>
-      {mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Current mockup media" /> : <div className="camera-preview-demo"><span>THE NEXT RELEASE</span><b>Make the work<br />feel inevitable.</b></div>}
+      <MockupPreviewMedia mockup={mockup} />
     </div>
   </>;
 }
@@ -26,7 +51,7 @@ function CameraNavigatorScene({ recipe, mockup, geometry, hoverCenter }: { recip
   return <>
     <ShaderCanvas recipe={recipe} frozen onError={() => undefined} />
     <div className="camera-preview-media camera-panorama-media" style={{ width: geometry.stageWidth * panoramaScale, height: geometry.stageHeight * panoramaScale, transform: `translate(-50%, -50%) rotate(${mockup.rotate}deg)` }}>
-      {mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Current mockup media" /> : <div className="camera-preview-demo"><span>THE NEXT RELEASE</span><b>Make the work<br />feel inevitable.</b></div>}
+      <MockupPreviewMedia mockup={mockup} />
     </div>
     <div className="camera-focus-window camera-current-window" style={{ width: frame.cropWidth, height: frame.cropHeight, left: frame.cropCenterX, top: frame.cropCenterY }}><i className="camera-handle" aria-hidden="true" /></div>
     {hoverCenter && <div className="camera-focus-window camera-hover-window" style={{ width: frame.cropWidth, height: frame.cropHeight, left: hoverCenter.x, top: hoverCenter.y }}><i className="camera-handle" aria-hidden="true" /></div>}

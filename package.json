@@ -14,6 +14,7 @@
     "@hugeicons/react": "^1.1.9",
     "@paper-design/shaders-react": "^0.0.77",
     "framer-motion": "^12.42.2",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
     "next": "^15.1.6",
     "react": "^19.0.0",

@@ -3,7 +3,7 @@ import type { RefObject } from "react";
 export type Tab = "presets" | "visuals" | "mockup";
 export type VisualSection = "style" | "palette" | "surface" | "motion" | "cursor";
 export type CursorEffect = "push" | "repel" | "swirl" | "ripple" | "spotlight";
-export type ExportTab = "image" | "video" | "mockup" | "prompt" | "react" | "glsl";
+export type ExportTab = "image" | "video" | "variations" | "mockup" | "prompt" | "react" | "glsl";
 export type MockupExportMode = "image" | "video";
 export type MockupChrome = "browser" | "none";
 export type MockupBorderStyle = "glass" | "border" | "inset" | "none";
