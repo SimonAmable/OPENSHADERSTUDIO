@@ -18,6 +18,158 @@ export function getCameraFrame(camera: Pick<MockupSettings, "scale" | "cameraX" 
   return { renderScale, panLimitX, panLimitY, cropWidth, cropHeight, cropCenterX: Math.max(cropWidth / 2, Math.min(padWidth - cropWidth / 2, unclampedCenterX)), cropCenterY: Math.max(cropHeight / 2, Math.min(padHeight - cropHeight / 2, unclampedCenterY)), previewScale };
 }
 
+export type CameraNavigatorSnapPoint = { id: "current" | "center"; x: number; y: number };
+
+export const CAMERA_NAVIGATOR_SNAP_THRESHOLD_PX = 10;
+export const CAMERA_NAVIGATOR_ALIGN_THRESHOLD_PX = 4;
+
+function clampNavigatorCenter(center: { x: number; y: number }, frame: CameraFrame, padWidth: number, padHeight: number) {
+  return {
+    x: Math.max(frame.cropWidth / 2, Math.min(padWidth - frame.cropWidth / 2, center.x)),
+    y: Math.max(frame.cropHeight / 2, Math.min(padHeight - frame.cropHeight / 2, center.y)),
+  };
+}
+
+export function getCameraNavigatorSnapPoints(frame: CameraFrame, padWidth: number, padHeight: number): CameraNavigatorSnapPoint[] {
+  const current = clampNavigatorCenter({ x: frame.cropCenterX, y: frame.cropCenterY }, frame, padWidth, padHeight);
+  const center = clampNavigatorCenter({ x: padWidth / 2, y: padHeight / 2 }, frame, padWidth, padHeight);
+  const snaps: CameraNavigatorSnapPoint[] = [{ id: "current", ...current }];
+  if (Math.hypot(current.x - center.x, current.y - center.y) > 1) snaps.push({ id: "center", ...center });
+  return snaps;
+}
+
+export function snapNavigatorCenter(center: { x: number; y: number }, snaps: CameraNavigatorSnapPoint[], thresholdPx: number) {
+  let nearest: CameraNavigatorSnapPoint | null = null;
+  let nearestDist = thresholdPx;
+  for (const snap of snaps) {
+    const dist = Math.hypot(center.x - snap.x, center.y - snap.y);
+    if (dist <= nearestDist) {
+      nearestDist = dist;
+      nearest = snap;
+    }
+  }
+  if (!nearest) return { center, snapId: null as "current" | "center" | null };
+  return { center: { x: nearest.x, y: nearest.y }, snapId: nearest.id };
+}
+
+export type CameraNavigatorAxisSnap = "current" | "pad";
+
+export type CameraNavigatorHoverSnap = {
+  active: boolean;
+  point: "current" | "center" | null;
+  axisX: CameraNavigatorAxisSnap | null;
+  axisY: CameraNavigatorAxisSnap | null;
+};
+
+export function resolveNavigatorHoverCenter(raw: { x: number; y: number }, frame: CameraFrame, padWidth: number, padHeight: number, snaps: CameraNavigatorSnapPoint[]) {
+  const clamped = clampNavigatorCenter(raw, frame, padWidth, padHeight);
+  const pointSnap = snapNavigatorCenter(clamped, snaps, CAMERA_NAVIGATOR_SNAP_THRESHOLD_PX);
+  if (pointSnap.snapId) {
+    const axisKind: CameraNavigatorAxisSnap = pointSnap.snapId === "center" ? "pad" : "current";
+    return {
+      center: pointSnap.center,
+      snap: { active: true, point: pointSnap.snapId, axisX: axisKind, axisY: axisKind } satisfies CameraNavigatorHoverSnap,
+    };
+  }
+
+  let x = clamped.x;
+  let y = clamped.y;
+  let axisX: CameraNavigatorAxisSnap | null = null;
+  let axisY: CameraNavigatorAxisSnap | null = null;
+  const xCandidates = [
+    { target: frame.cropCenterX, kind: "current" as const, dist: Math.abs(x - frame.cropCenterX) },
+    { target: padWidth / 2, kind: "pad" as const, dist: Math.abs(x - padWidth / 2) },
+  ].filter((candidate) => candidate.dist <= CAMERA_NAVIGATOR_ALIGN_THRESHOLD_PX).sort((a, b) => a.dist - b.dist);
+  const yCandidates = [
+    { target: frame.cropCenterY, kind: "current" as const, dist: Math.abs(y - frame.cropCenterY) },
+    { target: padHeight / 2, kind: "pad" as const, dist: Math.abs(y - padHeight / 2) },
+  ].filter((candidate) => candidate.dist <= CAMERA_NAVIGATOR_ALIGN_THRESHOLD_PX).sort((a, b) => a.dist - b.dist);
+
+  if (xCandidates[0]) {
+    x = xCandidates[0].target;
+    axisX = xCandidates[0].kind;
+  }
+  if (yCandidates[0]) {
+    y = yCandidates[0].target;
+    axisY = yCandidates[0].kind;
+  }
+
+  return {
+    center: clampNavigatorCenter({ x, y }, frame, padWidth, padHeight),
+    snap: { active: axisX !== null || axisY !== null, point: null, axisX, axisY } satisfies CameraNavigatorHoverSnap,
+  };
+}
+
+export type CameraNavigatorGuideLine = { axis: "x" | "y"; position: number; kind: "align" | "intersect" | "smart"; spanStart: number; spanEnd: number };
+
+function navigatorBoxEdges(centerX: number, centerY: number, width: number, height: number) {
+  const halfW = width / 2;
+  const halfH = height / 2;
+  return { left: centerX - halfW, right: centerX + halfW, top: centerY - halfH, bottom: centerY + halfH, cx: centerX, cy: centerY };
+}
+
+function pushAlignGuide(lines: CameraNavigatorGuideLine[], seen: Set<string>, axis: "x" | "y", a: number, b: number, spanStart: number, spanEnd: number) {
+  if (Math.abs(a - b) > CAMERA_NAVIGATOR_ALIGN_THRESHOLD_PX) return;
+  const position = (a + b) / 2;
+  const key = `${axis}:${Math.round(position * 10)}:align`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  lines.push({ axis, position, kind: "align", spanStart, spanEnd });
+}
+
+export function getCameraNavigatorGuides(currentCenter: { x: number; y: number }, hoverCenter: { x: number; y: number }, cropWidth: number, cropHeight: number, padWidth: number, padHeight: number, snap?: CameraNavigatorHoverSnap | null) {
+  const lines: CameraNavigatorGuideLine[] = [];
+  const seen = new Set<string>();
+  const current = navigatorBoxEdges(currentCenter.x, currentCenter.y, cropWidth, cropHeight);
+  const hover = navigatorBoxEdges(hoverCenter.x, hoverCenter.y, cropWidth, cropHeight);
+
+  if (snap?.axisX) {
+    const key = `x:${Math.round(hoverCenter.x * 10)}:smart`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      lines.push({ axis: "x", position: hoverCenter.x, kind: "smart", spanStart: 0, spanEnd: padHeight });
+    }
+  }
+  if (snap?.axisY) {
+    const key = `y:${Math.round(hoverCenter.y * 10)}:smart`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      lines.push({ axis: "y", position: hoverCenter.y, kind: "smart", spanStart: 0, spanEnd: padWidth });
+    }
+  }
+
+  const spanYStart = Math.min(current.top, hover.top);
+  const spanYEnd = Math.max(current.bottom, hover.bottom);
+  const spanXStart = Math.min(current.left, hover.left);
+  const spanXEnd = Math.max(current.right, hover.right);
+
+  pushAlignGuide(lines, seen, "x", current.left, hover.left, spanYStart, spanYEnd);
+  pushAlignGuide(lines, seen, "x", current.right, hover.right, spanYStart, spanYEnd);
+  pushAlignGuide(lines, seen, "x", current.cx, hover.cx, spanYStart, spanYEnd);
+  pushAlignGuide(lines, seen, "y", current.top, hover.top, spanXStart, spanXEnd);
+  pushAlignGuide(lines, seen, "y", current.bottom, hover.bottom, spanXStart, spanXEnd);
+  pushAlignGuide(lines, seen, "y", current.cy, hover.cy, spanXStart, spanXEnd);
+
+  const intersectLeft = Math.max(current.left, hover.left);
+  const intersectRight = Math.min(current.right, hover.right);
+  const intersectTop = Math.max(current.top, hover.top);
+  const intersectBottom = Math.min(current.bottom, hover.bottom);
+  if (intersectLeft < intersectRight - .5 && intersectTop < intersectBottom - .5) {
+    const pushIntersect = (axis: "x" | "y", position: number, spanStart: number, spanEnd: number) => {
+      const key = `${axis}:${Math.round(position * 10)}:intersect`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      lines.push({ axis, position, kind: "intersect", spanStart, spanEnd });
+    };
+    pushIntersect("x", intersectLeft, intersectTop, intersectBottom);
+    pushIntersect("x", intersectRight, intersectTop, intersectBottom);
+    pushIntersect("y", intersectTop, intersectLeft, intersectRight);
+    pushIntersect("y", intersectBottom, intersectLeft, intersectRight);
+  }
+
+  return lines;
+}
+
 export function getNavigatorCenter(event: PointerEvent<HTMLDivElement>, frame: CameraFrame, box: DOMRect) {
   return { x: Math.max(frame.cropWidth / 2, Math.min(box.width - frame.cropWidth / 2, event.clientX - box.left)), y: Math.max(frame.cropHeight / 2, Math.min(box.height - frame.cropHeight / 2, event.clientY - box.top)) };
 }

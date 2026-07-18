@@ -3,7 +3,7 @@
 import { type MouseEvent, type PointerEvent, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { Slider } from "./slider";
 import { ShaderCanvas, mockupPresets } from "./canvas";
-import { getCameraFrame, getPanoramaCameraFrame } from "./geometry";
+import { getCameraFrame, getCameraNavigatorGuides, getCameraNavigatorSnapPoints, getPanoramaCameraFrame, type CameraNavigatorHoverSnap } from "./geometry";
 import type { CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, MockupSettings, Recipe } from "./types";
 
 /** Static first-frame preview — never autoplays (main stage owns playback). */
@@ -45,16 +45,43 @@ export function CameraPadScene({ recipe, mockup, geometry, camera }: { recipe: R
   </>;
 }
 
-function CameraNavigatorScene({ recipe, mockup, geometry, hoverCenter }: { recipe: Recipe; mockup: MockupSettings; geometry: CameraGeometry; hoverCenter: { x: number; y: number } | null }) {
+function CameraNavigatorScene({ recipe, mockup, geometry, hoverCenter, hoverSnap }: { recipe: Recipe; mockup: MockupSettings; geometry: CameraGeometry; hoverCenter: { x: number; y: number } | null; hoverSnap: CameraNavigatorHoverSnap | null }) {
   const frame = getPanoramaCameraFrame(mockup, geometry);
   const panoramaScale = geometry.stageWidth && geometry.stageHeight ? Math.min(geometry.padWidth * .78 / geometry.stageWidth, geometry.padHeight * .78 / geometry.stageHeight) : 1;
+  const snapPoints = geometry.padWidth && geometry.padHeight ? getCameraNavigatorSnapPoints(frame, geometry.padWidth, geometry.padHeight) : [];
+  const guides = hoverCenter
+    ? getCameraNavigatorGuides({ x: frame.cropCenterX, y: frame.cropCenterY }, hoverCenter, frame.cropWidth, frame.cropHeight, geometry.padWidth, geometry.padHeight, hoverSnap)
+    : [];
   return <>
     <ShaderCanvas recipe={recipe} frozen onError={() => undefined} />
     <div className="camera-preview-media camera-panorama-media" style={{ width: geometry.stageWidth * panoramaScale, height: geometry.stageHeight * panoramaScale, transform: `translate(-50%, -50%) rotate(${mockup.rotate}deg)` }}>
       <MockupPreviewMedia mockup={mockup} />
     </div>
     <div className="camera-focus-window camera-current-window" style={{ width: frame.cropWidth, height: frame.cropHeight, left: frame.cropCenterX, top: frame.cropCenterY }}><i className="camera-handle" aria-hidden="true" /></div>
-    {hoverCenter && <div className="camera-focus-window camera-hover-window" style={{ width: frame.cropWidth, height: frame.cropHeight, left: hoverCenter.x, top: hoverCenter.y }}><i className="camera-handle" aria-hidden="true" /></div>}
+    {snapPoints.map((snap) => {
+      const active = hoverSnap?.point === snap.id || (hoverCenter !== null && Math.hypot(hoverCenter.x - snap.x, hoverCenter.y - snap.y) <= .5);
+      return <i key={snap.id} className="camera-snap-point" data-snap={snap.id} data-active={active ? "true" : "false"} style={{ left: snap.x, top: snap.y }} aria-hidden="true" />;
+    })}
+    {guides.map((guide, index) => (
+      <i
+        key={`${guide.kind}-${guide.axis}-${guide.position}-${index}`}
+        className="camera-align-guide"
+        data-kind={guide.kind}
+        data-axis={guide.axis}
+        style={guide.axis === "x"
+          ? { left: guide.position, top: guide.spanStart, height: guide.spanEnd - guide.spanStart }
+          : { left: guide.spanStart, top: guide.position, width: guide.spanEnd - guide.spanStart }}
+        aria-hidden="true"
+      />
+    ))}
+    {hoverCenter && <div
+      className="camera-focus-window camera-hover-window"
+      data-snapped={hoverSnap?.active ? "true" : "false"}
+      data-snap-point={hoverSnap?.point ?? ""}
+      data-snap-x={hoverSnap?.axisX ?? ""}
+      data-snap-y={hoverSnap?.axisY ?? ""}
+      style={{ width: frame.cropWidth, height: frame.cropHeight, left: hoverCenter.x, top: hoverCenter.y }}
+    ><i className="camera-handle" aria-hidden="true" /></div>}
   </>;
 }
 
@@ -76,7 +103,7 @@ export function CameraPresetPreview({ recipe, mockup, geometry, preset }: { reci
 }
 
 export function RightCameraInspector({
-  recipe, mockup, geometry, mode, tool2D, tool3D, hoverCenter, basePresetId,
+  recipe, mockup, geometry, mode, tool2D, tool3D, hoverCenter, hoverSnap, basePresetId,
   onModeChange, onTool2DChange, onTool3DChange, onChange, onPreset, onResetCamera,
   onPadPointerDown, onPadPointerMove, onPadPointerUp, onPadPointerCancel, onPadPointerLeave, cameraPadRef,
 }: {
@@ -87,6 +114,7 @@ export function RightCameraInspector({
   tool2D: CameraTool2D;
   tool3D: CameraTool3D;
   hoverCenter: { x: number; y: number } | null;
+  hoverSnap: CameraNavigatorHoverSnap | null;
   basePresetId: string | null;
   onModeChange: (mode: CameraMode) => void;
   onTool2DChange: (tool: CameraTool2D) => void;
@@ -138,7 +166,7 @@ export function RightCameraInspector({
       role="application"
       aria-label={padIsTilt ? "Drag to tilt the mockup" : "Drag to move the visible camera view"}
     >
-      {padIsCamera && <CameraNavigatorScene recipe={recipe} mockup={mockup} geometry={geometry} hoverCenter={hoverCenter} />}
+      {padIsCamera && <CameraNavigatorScene recipe={recipe} mockup={mockup} geometry={geometry} hoverCenter={hoverCenter} hoverSnap={hoverSnap} />}
       {padIsTilt && <div className="camera-pad-card" style={{ transform: `translate(-50%, -50%) perspective(280px) rotateX(${mockup.tiltX}deg) rotateY(${mockup.tiltY}deg) rotateZ(${mockup.rotate}deg) scale(${.65 + mockup.scale * .18})` }} />}
       <span className="camera-cross horizontal" /><span className="camera-cross vertical" />
       {padIsTilt && <i className="camera-handle tilt-handle" style={{ left: `${50 + Math.max(-45, Math.min(45, mockup.tiltY)) * 1.1}%`, top: `${50 - Math.max(-45, Math.min(45, mockup.tiltX)) * 1.1}%` }} />}

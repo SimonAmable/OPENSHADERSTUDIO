@@ -14,7 +14,7 @@ import { landingPageShaderSystemSkill } from "./landing-page-shader-system-skill
 
 import type { AnimationClip, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExportTab, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, VideoExportSettings, VisualSection } from "./shader-studio/types";
 import { useStudioStore } from "./shader-studio/store";
-import { cameraDeltaFromPadDrag, cameraFromNavigatorCenter, emptyCameraGeometry, getCameraFrame, getNavigatorCenter, getPanoramaCameraFrame } from "./shader-studio/geometry";
+import { cameraDeltaFromPadDrag, cameraFromNavigatorCenter, emptyCameraGeometry, getCameraFrame, getCameraNavigatorSnapPoints, getNavigatorCenter, getPanoramaCameraFrame, resolveNavigatorHoverCenter, type CameraNavigatorHoverSnap } from "./shader-studio/geometry";
 import { mockupBorderStyles, mockupChromeStyles, outputFrames, videoFormats } from "./shader-studio/constants";
 import { loopExportDuration, loopExportFrameCount, loopFrameIndexes, shaderOutputSize, exportPreviewAspect } from "./shader-studio/export-utils";
 import { inspireRecipe, recolourRecipe, remixRecipe, restyleRecipe } from "./shader-studio/randomize";
@@ -674,7 +674,7 @@ export function ShaderStudio() {
   const cameraPadRef = useRef<HTMLDivElement>(null);
   const cameraPadDrag = useRef<{ pointerId: number; startClientX: number; startClientY: number; startCameraX: number; startCameraY: number } | null>(null);
   const [cameraGeometry, setCameraGeometry] = useState<CameraGeometry>(emptyCameraGeometry);
-  const [navigatorHoverCenter, setNavigatorHoverCenter] = useState<{ x: number; y: number } | null>(null);
+  const [navigatorHover, setNavigatorHover] = useState<{ center: { x: number; y: number }; snap: CameraNavigatorHoverSnap } | null>(null);
   const [skillOpen, setSkillOpen] = useState(false);
   const [alignmentGridVisible, setAlignmentGridVisible] = useState(false);
   const playheadRef = useRef(0);
@@ -1516,7 +1516,9 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     let startCameraX = mockup.cameraX;
     let startCameraY = mockup.cameraY;
     if (!onCrop) {
-      const center = getNavigatorCenter(event, frame, box);
+      const raw = getNavigatorCenter(event, frame, box);
+      const snaps = getCameraNavigatorSnapPoints(frame, box.width, box.height);
+      const { center } = resolveNavigatorHoverCenter(raw, frame, box.width, box.height, snaps);
       const jumped = cameraFromNavigatorCenter(center.x, center.y, box, mockup, frame, cameraGeometry);
       startCameraX = jumped.cameraX;
       startCameraY = jumped.cameraY;
@@ -1524,7 +1526,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       setBasePresetId("custom");
     }
     cameraPadDrag.current = { pointerId: event.pointerId, startClientX: event.clientX, startClientY: event.clientY, startCameraX, startCameraY };
-    setNavigatorHoverCenter(null);
+    setNavigatorHover(null);
     setAlignmentGridVisible(true);
   };
   const moveCameraPadPointer = (event: PointerEvent<HTMLDivElement>) => {
@@ -1535,7 +1537,11 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     if (!isCameraPadActive) return;
     const drag = cameraPadDrag.current;
     if (!drag || drag.pointerId !== event.pointerId) {
-      setNavigatorHoverCenter(getNavigatorCenter(event, getPanoramaCameraFrame(mockup, cameraGeometry), event.currentTarget.getBoundingClientRect()));
+      const frame = getPanoramaCameraFrame(mockup, cameraGeometry);
+      const box = event.currentTarget.getBoundingClientRect();
+      const raw = getNavigatorCenter(event, frame, box);
+      const snaps = getCameraNavigatorSnapPoints(frame, box.width, box.height);
+      setNavigatorHover(resolveNavigatorHoverCenter(raw, frame, box.width, box.height, snaps));
       return;
     }
     const frame = getPanoramaCameraFrame(mockup, cameraGeometry);
@@ -1556,7 +1562,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     event.stopPropagation();
     updateMockup({ cameraX: 0, cameraY: 0 });
     setBasePresetId("custom");
-    setNavigatorHoverCenter(null);
+    setNavigatorHover(null);
     toast("Camera centered");
   };
   const moveAnimationCamera = (event: PointerEvent<HTMLDivElement>) => {
@@ -1591,7 +1597,8 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
             mode={cameraMode}
             tool2D={cameraTool2D}
             tool3D={cameraTool3D}
-            hoverCenter={navigatorHoverCenter}
+            hoverCenter={navigatorHover?.center ?? null}
+            hoverSnap={navigatorHover?.snap ?? null}
             basePresetId={basePresetId}
             onModeChange={setCameraDimension}
             onTool2DChange={setCameraTool2D}
@@ -1603,7 +1610,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
             onPadPointerMove={moveCameraPadPointer}
             onPadPointerUp={endCameraPadPointer}
             onPadPointerCancel={endCameraPadPointer}
-            onPadPointerLeave={() => { if (!cameraPadDrag.current) setNavigatorHoverCenter(null); }}
+            onPadPointerLeave={() => { if (!cameraPadDrag.current) setNavigatorHover(null); }}
             cameraPadRef={cameraPadRef}
           /></>}
         {tab === "mockup" && editorMode === "animation" && <>
