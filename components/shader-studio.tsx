@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { landingPageShaderSystemSkill } from "./landing-page-shader-system-skill";
 
-import type { AnimationClip, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExitStyle, ExportTab, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupPanelSection, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, TypeBlock, VideoExportSettings, VisualSection } from "./shader-studio/types";
+import type { AnimationClip, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipAnchor, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExitStyle, ExportTab, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupPanelSection, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, TypeBlock, VideoExportSettings, VisualSection } from "./shader-studio/types";
 import { MAX_TYPE_BLOCKS, TypeCanvasLayer, TypePanel, createTypeBlock, typePresets } from "./shader-studio/type-layer";
 import { useStudioStore } from "./shader-studio/store";
 import { cameraDeltaFromPadDrag, cameraFromNavigatorCenter, emptyCameraGeometry, getCameraFrame, getCameraNavigatorSnapPoints, getNavigatorCenter, getPanoramaCameraFrame, resolveNavigatorHoverCenter, type CameraNavigatorHoverSnap } from "./shader-studio/geometry";
@@ -1325,6 +1325,9 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     setSelectedTypeId((current) => current === id ? null : current);
   };
   const typeLayerInteractive = tab === "mockup" && mockupPanel === "type" && editorMode === "mockup";
+  useEffect(() => {
+    if (!typeLayerInteractive) setSelectedTypeId(null);
+  }, [typeLayerInteractive]);
   const loadFile = (file: File) => { if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) { toast.error("Choose an image or video"); return; } const reader = new FileReader(); reader.onload = () => { const centered = mockupPresets[0]; updateMockup({ media: String(reader.result), mediaType: file.type.startsWith("video/") ? "video" : "image", ...centered.settings }); setBasePresetId(centered.id); toast("Centered mockup preset applied"); }; reader.readAsDataURL(file); };
   const loadMockupMedia = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) loadFile(file); };
   const handleDrop = (event: DragEvent<HTMLElement>) => { event.preventDefault(); const file = event.dataTransfer.files?.[0]; if (file) loadFile(file); };
@@ -1351,24 +1354,9 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   const createAnimationClip = (start: number, duration = Math.min(animationDuration, baseDuration)): AnimationClip => ({
     id: crypto.randomUUID(), label: cameraMode === "tilt" ? "Tilt" : "Zoom", presetId: focusPresetId, start, duration,
     transition: Math.min(animationTransition, Math.max(MIN_TRAVEL, duration - EXIT_RESERVE)), easing: animationEasing, zoom: focusZoom, tilt: focusTilt, hold: Math.min(animationHold, duration * .3), springSpeed,
-    targetX: mockup.x, targetY: mockup.y, targetTiltX: focusPreset.settings.tiltX, targetTiltY: focusPreset.settings.tiltY, targetRotate: focusPreset.settings.rotate, cameraX: focusPreset.settings.cameraX, cameraY: focusPreset.settings.cameraY, exit: "base", exitStyle: "camera", hidden: false,
+    targetX: mockup.x, targetY: mockup.y, targetTiltX: focusPreset.settings.tiltX, targetTiltY: focusPreset.settings.tiltY, targetRotate: focusPreset.settings.rotate, cameraX: focusPreset.settings.cameraX, cameraY: focusPreset.settings.cameraY, startAt: "base", endAt: "base", exitStyle: "camera", hidden: false,
   });
-  const findClipGap = (duration: number, excludeId?: string, preferredStart = 0) => {
-    const others = animationClips.filter((clip) => clip.id !== excludeId).sort((a, b) => a.start - b.start);
-    const gaps: { from: number; to: number }[] = [];
-    let cursor = 0;
-    for (const existing of others) {
-      if (existing.start > cursor) gaps.push({ from: cursor, to: existing.start });
-      cursor = Math.max(cursor, existing.start + existing.duration);
-    }
-    if (cursor < baseDuration) gaps.push({ from: cursor, to: baseDuration });
-    const fit = gaps.filter((gap) => gap.to - gap.from >= duration);
-    if (!fit.length) return -1;
-    return Math.round(fit.reduce((best, gap) => {
-      const candidate = Math.max(gap.from, Math.min(gap.to - duration, preferredStart));
-      return Math.abs(candidate - preferredStart) < Math.abs(best - preferredStart) ? candidate : best;
-    }, fit[0].from) * 10) / 10;
-  };
+  const clampClipStart = (start: number, duration: number) => Math.round(Math.max(0, Math.min(baseDuration - duration, start)) * 10) / 10;
   const openAnimation = () => {
     if (!basePresetId && !mockup.media) { toast("Upload media, then choose a mockup preset before animating"); return; }
     if (!basePresetId) setBasePresetId("hero");
@@ -1381,15 +1369,12 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   };
   const addAnimationClip = () => {
     const duration = Math.min(animationDuration, baseDuration);
-    const start = findClipGap(duration);
-    if (start < 0) { toast("No room in the base duration for another animation"); return; }
-    const clip = createAnimationClip(Math.round(start * 10) / 10, duration);
+    const start = clampClipStart(playheadRef.current, duration);
+    const clip = createAnimationClip(start, duration);
     setAnimationClips((clips) => [...clips, clip]); setActiveClipId(clip.id); setEditorMode("animation");
   };
   const duplicateClip = (source: AnimationClip) => {
-    const start = findClipGap(source.duration, source.id);
-    if (start < 0) { toast("No room in the base duration to duplicate this animation"); return; }
-    const duplicate = { ...source, id: crypto.randomUUID(), start: Math.round(start * 10) / 10, exit: "base" as const, hidden: false };
+    const duplicate = { ...source, id: crypto.randomUUID(), start: source.start, hidden: false };
     setAnimationClips((clips) => [...clips, duplicate]); setActiveClipId(duplicate.id); toast("Animation duplicated");
   };
   const copyClip = (clip: AnimationClip) => { setClipClipboard({ clip: { ...clip }, mode: "copy" }); toast("Animation copied"); };
@@ -1402,9 +1387,8 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   const pasteClip = () => {
     if (!clipClipboard) return;
     const source = clipClipboard.clip;
-    const start = findClipGap(source.duration, undefined, playheadRef.current);
-    if (start < 0) { toast("No room in the base duration to paste this animation"); return; }
-    const pasted = { ...source, id: crypto.randomUUID(), start: Math.round(start * 10) / 10, exit: "base" as const, hidden: false };
+    const duration = Math.min(source.duration, baseDuration);
+    const pasted = { ...source, id: crypto.randomUUID(), start: clampClipStart(playheadRef.current, duration), duration, hidden: false };
     setAnimationClips((clips) => [...clips, pasted]);
     setActiveClipId(pasted.id);
     if (clipClipboard.mode === "cut") setClipClipboard(null);
@@ -1438,7 +1422,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       duration: leftDuration,
       transition: Math.min(clip.transition, Math.max(MIN_TRAVEL, leftDuration - EXIT_RESERVE)),
       hold: Math.min(clip.hold, leftDuration * .3),
-      exit: "next",
+      endAt: "target",
     };
     const right: AnimationClip = {
       ...clip,
@@ -1447,7 +1431,8 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       duration: rightDuration,
       transition: Math.min(clip.transition, Math.max(MIN_TRAVEL, rightDuration - EXIT_RESERVE)),
       hold: Math.min(clip.hold, rightDuration * .3),
-      exit: clip.exit,
+      startAt: "target",
+      endAt: clip.endAt,
     };
     setAnimationClips((clips) => [...clips.filter((item) => item.id !== clip.id), left, right]);
     setActiveClipId(right.id);
@@ -1468,7 +1453,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   };
   const runClipMenuAction = (action: () => void) => { action(); closeClipMenu(); };
   const selectBaseMedia = () => { setIsTimelinePlaying(false); setActiveClipId(null); setEditorMode("mockup"); setMotionPreview("base"); closeClipMenu(); };
-  const selectAnimationClip = (clip: AnimationClip) => { setActiveClipId(clip.id); setFocusPresetId(clip.presetId); setFocusZoom(clip.zoom); setFocusTilt(clip.tilt); setAnimationTransition(clip.transition); setAnimationEasing(clip.easing); setAnimationHold(clip.hold); setSpringSpeed(clip.springSpeed); setEditorMode("animation"); setMotionPreview("focus"); seekToClipTarget(clip); };
+  const selectAnimationClip = (clip: AnimationClip) => { setActiveClipId(clip.id); setFocusPresetId(clip.presetId); setFocusZoom(clip.zoom); setFocusTilt(clip.tilt); setAnimationDuration(clip.duration); setAnimationTransition(clip.transition); setAnimationEasing(clip.easing); setAnimationHold(clip.hold); setSpringSpeed(clip.springSpeed); setEditorMode("animation"); setMotionPreview("focus"); seekToClipTarget(clip); };
   const seekTimeline = (event: PointerEvent<HTMLElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     setTimelinePlayhead((event.clientX - bounds.left) / bounds.width * baseDuration);
@@ -1485,24 +1470,15 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       const delta = (next.clientX - gesture.x) / trackWidth * baseDuration;
       setAnimationClips((clips) => clips.map((item) => {
         if (item.id !== gesture.id) return item;
-        const others = clips.filter((other) => other.id !== item.id).sort((a, b) => a.start - b.start);
         if (gesture.kind === "resize") {
-          const nextClip = others.find((other) => other.start >= item.start);
-          const maxEnd = nextClip ? nextClip.start : baseDuration;
-          const duration = Math.round(Math.max(MIN_CLIP_DURATION, Math.min(maxEnd - item.start, gesture.duration + delta)) * 10) / 10;
+          const duration = Math.round(Math.max(MIN_CLIP_DURATION, Math.min(baseDuration - item.start, gesture.duration + delta)) * 10) / 10;
           return { ...item, duration, transition: Math.min(item.transition, Math.max(MIN_TRAVEL, duration - EXIT_RESERVE)), hold: Math.min(item.hold, duration * .3) };
         }
-        const desired = Math.max(0, Math.min(baseDuration - item.duration, gesture.start + delta));
-        const gaps = [{ from: 0, to: others[0]?.start ?? baseDuration }, ...others.map((other, index) => ({ from: other.start + other.duration, to: others[index + 1]?.start ?? baseDuration }))]
-          .filter((gap) => gap.to - gap.from >= item.duration);
-        const start = gaps.reduce((best, gap) => {
-          const candidate = Math.max(gap.from, Math.min(gap.to - item.duration, desired));
-          return Math.abs(candidate - desired) < Math.abs(best - desired) ? candidate : best;
-        }, gaps.length ? gaps[0].from : item.start);
-        return { ...item, start: Math.round(start * 10) / 10 };
+        const start = clampClipStart(gesture.start + delta, item.duration);
+        return { ...item, start };
       }));
     };
-    const end = () => { clipGesture.current = null; setAnimationClips((clips) => { const ordered = [...clips].sort((a, b) => a.start - b.start); return clips.map((clip) => { const next = ordered[ordered.findIndex((item) => item.id === clip.id) + 1]; return clip.exit === "next" && (!next || Math.abs(clip.start + clip.duration - next.start) >= .11) ? { ...clip, exit: "base" } : clip; }); }); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
+    const end = () => { clipGesture.current = null; window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", end);
   };
   const activeClip = animationClips.find((clip) => clip.id === activeClipId);
@@ -1511,21 +1487,56 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
   const activeTargetPreset = activeClip ? (mockupPresets.find((preset) => preset.id === activeClip.presetId) ?? focusPreset) : focusPreset;
   const activeTargetScale = activeTargetPreset.settings.scale * (activeClip?.zoom ?? focusZoom);
   const nextClip = activeClip ? orderedClips.find((clip) => clip.start > activeClip.start) : undefined;
-  const activeClipMaxDuration = activeClip ? Math.max(.6, (nextClip?.start ?? baseDuration) - activeClip.start) : baseDuration;
-  const previousFor = (clip: AnimationClip) => orderedClips[orderedClips.findIndex((item) => item.id === clip.id) - 1];
+  const previousClip = activeClip ? [...orderedClips].reverse().find((clip) => clip.start < activeClip.start) : undefined;
+  const activeClipMaxDuration = activeClip ? Math.max(MIN_CLIP_DURATION, baseDuration - activeClip.start) : baseDuration;
   const nextFor = (clip: AnimationClip) => orderedClips[orderedClips.findIndex((item) => item.id === clip.id) + 1];
-  const isLinkedFromPrevious = (clip: AnimationClip) => {
-    const previous = previousFor(clip);
-    return Boolean(previous && previous.exit === "next" && Math.abs(previous.start + previous.duration - clip.start) < .11);
+  const clipsAbut = (left: AnimationClip, right: AnimationClip) => Math.abs(left.start + left.duration - right.start) < .11;
+  const handoffToNext = (clip: AnimationClip) => {
+    const next = nextFor(clip);
+    return Boolean(clip.endAt === "target" && next && next.startAt === "target" && clipsAbut(clip, next));
+  };
+  const hasExitTravel = (clip: AnimationClip) => clip.endAt === "base" || handoffToNext(clip);
+  const inboundTravel = (clip: AnimationClip) => {
+    if (clip.startAt === "target") return 0;
+    const hold = Math.min(clip.hold, clip.duration * .3);
+    const reserve = hasExitTravel(clip) ? EXIT_RESERVE : 0;
+    return Math.min(clip.transition, Math.max(MIN_TRAVEL, clip.duration - hold - reserve));
   };
   const seekToClipTarget = (clip: AnimationClip) => {
     const hold = Math.min(clip.hold, clip.duration * .3);
-    const travel = isLinkedFromPrevious(clip) ? 0 : Math.min(clip.transition, Math.max(MIN_TRAVEL, clip.duration - hold - EXIT_RESERVE));
+    const travel = inboundTravel(clip);
     setIsTimelinePlaying(false);
     setTimelinePlayhead(clip.start + travel + Math.min(hold / 2, .06));
     setMotionPreview("focus");
   };
-  const previewClip = animationClips.find((clip) => !clip.hidden && playhead >= clip.start && playhead <= clip.start + clip.duration);
+  const setClipAnchor = (edge: "startAt" | "endAt", anchor: ClipAnchor) => {
+    if (!activeClip) return;
+    const ordered = [...animationClips].sort((a, b) => a.start - b.start);
+    const index = ordered.findIndex((item) => item.id === activeClip.id);
+    const current = ordered[index];
+    if (!current) return;
+    const previous = ordered[index - 1];
+    const next = ordered[index + 1];
+    const nextById = new Map(animationClips.map((clip) => [clip.id, clip]));
+    let updated: AnimationClip = { ...current, [edge]: anchor };
+    if (edge === "startAt" && anchor === "target" && previous) {
+      updated = { ...updated, start: Math.round((previous.start + previous.duration) * 10) / 10, startAt: "target" };
+      nextById.set(previous.id, { ...previous, endAt: "target" });
+    } else if (edge === "endAt" && anchor === "target" && next) {
+      updated = { ...updated, endAt: "target" };
+      nextById.set(next.id, { ...next, start: Math.round((updated.start + updated.duration) * 10) / 10, startAt: "target" });
+    }
+    nextById.set(updated.id, updated);
+    setAnimationClips(animationClips.map((clip) => nextById.get(clip.id) ?? clip));
+    seekToClipTarget(updated);
+    const label = anchor === "base" ? "Base" : "Target";
+    toast(edge === "startAt" ? `Starts at ${label}` : `Ends at ${label}`);
+  };
+  const previewClip = (() => {
+    const covering = animationClips.filter((clip) => !clip.hidden && playhead >= clip.start && playhead <= clip.start + clip.duration);
+    if (!covering.length) return undefined;
+    return covering.find((clip) => clip.id === activeClipId) ?? covering[covering.length - 1];
+  })();
   const springProgress = (progress: number, speed: number) => {
     if (progress <= 0) return 0;
     if (progress >= 1) return 1;
@@ -1560,27 +1571,42 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     const localTime = playhead - clip.start;
     const hold = Math.min(clip.hold, clip.duration * .3);
     const next = nextFor(clip);
-    const exitState = clip.exit === "next" && next && Math.abs(clip.start + clip.duration - next.start) < .11 ? targetState(next) : mockup;
-    if (isLinkedFromPrevious(clip)) {
+    const handoff = handoffToNext(clip);
+    const exitState = handoff && next ? targetState(next) : mockup;
+    const exitTravel = hasExitTravel(clip);
+    const travel = inboundTravel(clip);
+
+    if (clip.startAt === "target") {
+      if (!exitTravel) return target;
       const exitDuration = Math.max(.01, clip.duration - hold);
       if (localTime <= hold) return target;
       return interpolateMockup(target, exitState, motionProgress((localTime - hold) / exitDuration, clip));
     }
-    const travel = Math.min(clip.transition, Math.max(MIN_TRAVEL, clip.duration - hold - EXIT_RESERVE));
+
+    if (!exitTravel) {
+      if (localTime <= travel) return interpolateMockup(mockup, target, motionProgress(localTime / travel, clip));
+      return target;
+    }
+
     const exitDuration = Math.max(.01, clip.duration - travel - hold);
-    const progress = localTime <= travel ? motionProgress(localTime / travel, clip)
-      : localTime <= travel + hold ? 1
-        : motionProgress((localTime - travel - hold) / exitDuration, clip);
-    return localTime <= travel + hold ? interpolateMockup(mockup, target, progress) : interpolateMockup(target, exitState, progress);
+    if (localTime <= travel) return interpolateMockup(mockup, target, motionProgress(localTime / travel, clip));
+    if (localTime <= travel + hold) return target;
+    return interpolateMockup(target, exitState, motionProgress((localTime - travel - hold) / exitDuration, clip));
   };
-  const exitPhaseProgress = (clip: AnimationClip): number | null => {
+  const transitionPhaseProgress = (clip: AnimationClip): number | null => {
     const localTime = playhead - clip.start;
     const hold = Math.min(clip.hold, clip.duration * .3);
-    if (isLinkedFromPrevious(clip)) {
+    const travel = inboundTravel(clip);
+    const exitTravel = hasExitTravel(clip);
+
+    if (clip.startAt === "base" && travel > 0 && localTime <= travel) {
+      return Math.max(0, Math.min(1, localTime / travel));
+    }
+    if (!exitTravel) return null;
+    if (clip.startAt === "target") {
       if (localTime <= hold) return null;
       return Math.max(0, Math.min(1, (localTime - hold) / Math.max(.01, clip.duration - hold)));
     }
-    const travel = Math.min(clip.transition, Math.max(MIN_TRAVEL, clip.duration - hold - EXIT_RESERVE));
     if (localTime <= travel + hold) return null;
     return Math.max(0, Math.min(1, (localTime - travel - hold) / Math.max(.01, clip.duration - travel - hold)));
   };
@@ -1588,7 +1614,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     if (!clip) return { opacity: 1, filter: "none" };
     const style = clip.exitStyle;
     if (style === "camera") return { opacity: 1, filter: "none" };
-    const phase = exitPhaseProgress(clip);
+    const phase = transitionPhaseProgress(clip);
     if (phase === null) return { opacity: 1, filter: "none" };
     const bell = Math.sin(Math.PI * phase);
     switch (style) {
@@ -1814,15 +1840,21 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
         {tab === "mockup" && editorMode === "animation" && <>
          <aside className="motion-inspector">
           <div className="motion-header"><div><span className="eyebrow">SELECTED ANIMATION</span><h2>{activeClip?.label ?? "Animation"}</h2><p>Choose its destination, then fine-tune it.</p></div><div className="motion-header-actions"><button className="duplicate-animation" onClick={duplicateActiveClip} title="Duplicate animation" aria-label="Duplicate animation"><Copy /></button><button onClick={selectBaseMedia}>Edit base</button></div></div>
+          <Slider label="Length" value={activeClip?.duration ?? animationDuration} min={MIN_CLIP_DURATION} max={activeClipMaxDuration} step={.1} unit="s" onChange={(duration) => { if (!activeClip) return; const nextDuration = Math.round(Math.max(MIN_CLIP_DURATION, Math.min(activeClipMaxDuration, duration)) * 10) / 10; const updated = { ...activeClip, duration: nextDuration, transition: Math.min(activeClip.transition, Math.max(MIN_TRAVEL, nextDuration - EXIT_RESERVE)), hold: Math.min(activeClip.hold, nextDuration * .3) }; setAnimationDuration(nextDuration); setAnimationTransition(updated.transition); setAnimationHold(updated.hold); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} />
           <Slider label="Transition" value={activeClip?.transition ?? animationTransition} min={MIN_TRAVEL} max={activeClip?.duration ?? baseDuration} step={.1} unit="s" onChange={(transition) => { if (!activeClip) return; const updated = { ...activeClip, transition: Math.min(transition, Math.max(MIN_TRAVEL, activeClip.duration - EXIT_RESERVE)) }; setAnimationTransition(updated.transition); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); }} trailing={<button type="button" className={`curve-toggle ${activeClip?.easing ?? animationEasing}`} aria-label={`Switch to ${activeClip?.easing === "spring" ? "ease" : "spring"} curve`} title={activeClip?.easing === "spring" ? "Spring curve — click for ease" : "Ease curve — click for spring"} onClick={(event) => { event.preventDefault(); if (!activeClip) return; const easing = activeClip.easing === "spring" ? "ease" as const : "spring" as const; const updated = { ...activeClip, easing }; setAnimationEasing(easing); setAnimationClips((clips) => clips.map((clip) => clip.id === activeClipId ? updated : clip)); seekToClipTarget(updated); toast(`${easing === "spring" ? "Spring" : "Ease"} motion applied`); }}><i aria-hidden="true" /></button>} />
           <div className="motion-exit-control">
-            <span>After this animation</span>
-            <div>
-              <button className={activeClip?.exit === "base" ? "active" : ""} onClick={() => activeClip && setAnimationClips((clips) => clips.map((clip) => clip.id === activeClip.id ? { ...clip, exit: "base" } : clip))}>Return to base</button>
-              <button disabled={!activeClip || !nextClip} className={activeClip?.exit === "next" ? "active" : ""} onClick={() => { if (!activeClip || !nextClip) return; const nextStart = activeClip.start + activeClip.duration; setAnimationClips((clips) => clips.map((clip) => clip.id === activeClip.id ? { ...clip, exit: "next" } : clip.id === nextClip.id ? { ...clip, start: nextStart } : clip)); toast(`Flows into ${nextClip.label}`); }}>Continue to next</button>
+            <span>Start</span>
+            <div role="group" aria-label="Start anchor">
+              <button type="button" className={(activeClip?.startAt ?? "base") === "base" ? "active" : ""} onClick={() => setClipAnchor("startAt", "base")}>Base</button>
+              <button type="button" className={(activeClip?.startAt ?? "base") === "target" ? "active" : ""} onClick={() => setClipAnchor("startAt", "target")}>Target</button>
+            </div>
+            <span>End</span>
+            <div role="group" aria-label="End anchor">
+              <button type="button" className={(activeClip?.endAt ?? "base") === "base" ? "active" : ""} onClick={() => setClipAnchor("endAt", "base")}>Base</button>
+              <button type="button" className={(activeClip?.endAt ?? "base") === "target" ? "active" : ""} onClick={() => setClipAnchor("endAt", "target")}>Target</button>
             </div>
             <span>Transition style</span>
-            <div className="motion-exit-style" role="group" aria-label="Exit transition style">
+            <div className="motion-exit-style" role="group" aria-label="Transition style">
               {([
                 { id: "camera" as const, label: "Camera" },
                 { id: "crossfade" as const, label: "Crossfade" },
@@ -1836,7 +1868,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
                     if (!activeClip) return;
                     const exitStyle: ExitStyle = option.id;
                     setAnimationClips((clips) => clips.map((clip) => clip.id === activeClip.id ? { ...clip, exitStyle } : clip));
-                    toast(exitStyle === "camera" ? "Camera transition" : exitStyle === "crossfade" ? "Crossfade exit" : "Blur morph exit");
+                    toast(exitStyle === "camera" ? "Camera transition" : exitStyle === "crossfade" ? "Crossfade style" : "Blur morph style");
                   }}
                 >
                   {option.label}
@@ -1845,12 +1877,18 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
             </div>
             <small>
               {activeClip?.exitStyle === "crossfade"
-                ? "Dissolves through opacity as the camera leaves."
+                ? "Crossfade plays on moves to or from base, and on target handoffs."
                 : activeClip?.exitStyle === "blur"
-                  ? "Soft blur peaks mid-exit for a morph feel."
-                  : nextClip
-                    ? `Flows into ${nextClip.label} instead of returning to base.`
-                    : "Add another animation to create a continuation."}
+                  ? "Blur morph plays on moves to or from base, and on target handoffs."
+                  : activeClip?.startAt === "target" && activeClip?.endAt === "target"
+                    ? previousClip && nextClip
+                      ? `Holds focus; links ${previousClip.label} → ${nextClip.label} when clips abut.`
+                      : "Holds on target for the whole clip."
+                    : activeClip?.endAt === "target" && nextClip
+                      ? `Ends on target and can flow into ${nextClip.label}.`
+                      : activeClip?.startAt === "target"
+                        ? "Starts already on target."
+                        : "Travels from base to target, then back to base."}
             </small>
           </div>
           <div className="camera-tabs" role="tablist" aria-label="Animation transform space"><button type="button" role="tab" aria-selected={cameraMode === "zoom"} className={cameraMode === "zoom" ? "active" : ""} onClick={() => setCameraDimension("zoom")}>2D</button><button type="button" role="tab" aria-selected={cameraMode === "tilt"} className={cameraMode === "tilt" ? "active" : ""} onClick={() => setCameraDimension("tilt")}>3D</button><button type="button" className="precision-toggle" onClick={() => setPrecisionOpen((value) => !value)}>{precisionOpen ? "Simple" : "Precision"}</button></div>
@@ -1881,7 +1919,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
           {editorMode === "animation" && <motion.section className="timeline-composer" initial={{ y: 36, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 36, opacity: 0 }} transition={{ type: "spring", stiffness: 280, damping: 28 }}>
             <div className="composer-toolbar"><button className="timeline-back" onClick={selectBaseMedia}>Edit mockup</button><button className="composer-add" onClick={addAnimationClip}>+ Add animation</button><button className="timeline-play" onClick={playMotionPreview} aria-label={isTimelinePlaying ? "Pause timeline" : "Play timeline"}>{isTimelinePlaying ? <Pause /> : <Play />}</button><span className="timeline-time">{Math.floor(playhead / 60)}:{(playhead % 60).toFixed(1).padStart(4, "0")} / {baseDuration.toFixed(1)}s</span><button className="timeline-export" onClick={() => { setExportTab("video"); setExportOpen(true); }}><Video /> Export 1080p</button></div>
             <div className="composer-ruler" onPointerDown={seekTimeline}>{Array.from({ length: baseDuration + 1 }, (_, index) => <span key={index} style={{ left: `${index / baseDuration * 100}%` }}>{index === 0 ? "0:00" : `0:0${index}`}</span>)}</div>
-<div className="composer-lanes"><div className="composer-lane-label">Animations</div><div ref={animationTrackRef} className="composer-track animation-lane" onPointerDown={seekTimeline}>{animationClips.map((clip) => <button key={clip.id} type="button" className={`composer-clip ${activeClipId === clip.id ? "active" : ""} ${clip.hidden ? "is-hidden" : ""}`} style={{ left: `${clip.start / baseDuration * 100}%`, width: `${clip.duration / baseDuration * 100}%` }} onClick={() => selectAnimationClip(clip)} onContextMenu={(event) => openClipMenu(event, clip)} onPointerDown={(event) => beginClipGesture(event, clip, "move")}><span className="clip-handle clip-handle-left" data-drag="move" /><span>{clip.label}{clip.hidden ? " · Hidden" : ""}</span><small>{clip.duration.toFixed(1)}s</small><span className="clip-handle clip-handle-right" data-drag="resize" onPointerDown={(event) => beginClipGesture(event, clip, "resize")} /></button>)}{orderedClips.map((clip, index) => { const next = orderedClips[index + 1]; return clip.exit === "next" && next && Math.abs(clip.start + clip.duration - next.start) < .11 ? <i key={`${clip.id}-link`} className="clip-link" style={{ left: `${(clip.start + clip.duration) / baseDuration * 100}%`, width: "14px" }} /> : null; })}<button className="composer-plus" onClick={addAnimationClip}>+</button><i className="timeline-playhead" style={{ left: `${playhead / baseDuration * 100}%` }} /></div><div className="composer-lane-label media-label">Base media</div><div className="composer-track media-lane" onPointerDown={seekTimeline}><button type="button" aria-pressed={activeClipId === null} className="base-media-clip" onPointerDown={(event) => { event.stopPropagation(); selectBaseMedia(); }} onClick={selectBaseMedia}><i />Mockup <b>{mockup.media ? "Screenshot" : "Demo media"} · {baseDuration.toFixed(1)}s</b><span>Edit mockup</span></button><i className="timeline-playhead" style={{ left: `${playhead / baseDuration * 100}%` }} /></div></div>
+<div className="composer-lanes"><div className="composer-lane-label">Animations</div><div ref={animationTrackRef} className="composer-track animation-lane" onPointerDown={seekTimeline}>{animationClips.map((clip) => <button key={clip.id} type="button" className={`composer-clip ${activeClipId === clip.id ? "active" : ""} ${clip.hidden ? "is-hidden" : ""}`} style={{ left: `${clip.start / baseDuration * 100}%`, width: `${clip.duration / baseDuration * 100}%` }} onClick={() => selectAnimationClip(clip)} onContextMenu={(event) => openClipMenu(event, clip)} onPointerDown={(event) => beginClipGesture(event, clip, "move")}><span className="clip-handle clip-handle-left" data-drag="move" /><span>{clip.label}{clip.hidden ? " · Hidden" : ""}</span><small>{clip.duration.toFixed(1)}s</small><span className="clip-handle clip-handle-right" data-drag="resize" onPointerDown={(event) => beginClipGesture(event, clip, "resize")} /></button>)}{orderedClips.map((clip, index) => { const next = orderedClips[index + 1]; return handoffToNext(clip) && next ? <i key={`${clip.id}-link`} className="clip-link" style={{ left: `${(clip.start + clip.duration) / baseDuration * 100}%`, width: "14px" }} /> : null; })}<button className="composer-plus" onClick={addAnimationClip}>+</button><i className="timeline-playhead" style={{ left: `${playhead / baseDuration * 100}%` }} /></div><div className="composer-lane-label media-label">Base media</div><div className="composer-track media-lane" onPointerDown={seekTimeline}><button type="button" aria-pressed={activeClipId === null} className="base-media-clip" onPointerDown={(event) => { event.stopPropagation(); selectBaseMedia(); }} onClick={selectBaseMedia}><i />Mockup <b>{mockup.media ? "Screenshot" : "Demo media"} · {baseDuration.toFixed(1)}s</b><span>Edit mockup</span></button><i className="timeline-playhead" style={{ left: `${playhead / baseDuration * 100}%` }} /></div></div>
           </motion.section>}
         </AnimatePresence>
       </>}
