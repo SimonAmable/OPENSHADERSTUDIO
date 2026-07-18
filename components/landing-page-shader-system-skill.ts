@@ -5,7 +5,7 @@ description: Plan a cohesive landing-page shader visual system from a supplied c
 
 # Landing Page Shader System
 
-Create one visual world across a landing page. Treat the hero as the expressive lead and the rest of the page as quieter, coordinated supporting surfaces.
+Create one visual world across a landing page. Ground the page in one strong lead shader, echo it on the closing CTA, and fill the rest with remixed or restyled variants of the same palette. Prefer shaders for page, card, and button backgrounds wherever reasonable.
 
 ## Intake
 
@@ -18,12 +18,12 @@ Also ask for the product or page type if it is not already clear. Ask only for i
 
 ## Propose the visual system
 
-Before producing recipes, give a short system proposal with these four surfaces:
+Before producing recipes, give a short system proposal with these surfaces:
 
-1. **Hero** — name the lead shader, whether it moves, and the mood it creates.
-2. **Sections** — choose a calmer related variation for large content areas.
-3. **Cards** — choose the most restrained treatment; content must remain the focus.
-4. **CTA and footer** — reintroduce the visual language with a deliberate, lower-intensity variation.
+1. **Hero** — one strong lead shader that is animated and has a clear hover response. Name the shader, mood, motion, and what hover does.
+2. **Final CTA card** — a close cousin of the hero shader (same family, same intensity band; motion optional but related) so the page bookends on one visual idea.
+3. **All other sections** — either a remix of the lead shader or a restyle on the same palette; quieter than the hero, still recognizably related.
+4. **Cards, page, and button backgrounds** — use shaders wherever reasonable; only fall back to flat colour when readability, density, or performance would suffer.
 
 Explain the palette role, text-safe areas, contrast treatment, and motion level in plain language. Keep the proposal compact and concrete.
 
@@ -37,9 +37,10 @@ Do not create recipes, write code, change a project, or claim the system is fina
 
 After approval, create coordinated recipes or implementation guidance. Preserve these rules:
 
+- One strong animated hero shader with hover; mirror that energy on the final CTA card.
+- Everywhere else: remix or restyle the same palette / shader family — do not introduce unrelated looks.
+- Prefer shader backgrounds for the page, cards, and buttons wherever reasonable and readable.
 - Keep body text and navigation on calm, high-contrast surfaces.
-- Reserve continuous motion for the hero or another intentional focal moment.
-- Use still or nearly still variants behind cards and dense content.
-- Keep the same palette hierarchy and shader family recognizable throughout the page.
-- Include a reduced-motion or static fallback for animated treatments.
+- Keep continuous motion focused on the hero and final CTA; use still or near-still variants behind dense content.
+- Include a reduced-motion or static fallback for animated and hover treatments.
 `;
