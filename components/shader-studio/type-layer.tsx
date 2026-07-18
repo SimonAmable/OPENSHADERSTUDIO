@@ -3,7 +3,7 @@
 import { PointerEvent, useEffect, useRef, useState } from "react";
 import { CopyPlus, Trash2, Type } from "lucide-react";
 import { Slider } from "./slider";
-import type { TypeAlign, TypeBlock, TypeFont, TypeMode } from "./types";
+import type { TypeAlign, TypeBlock, TypeFont, TypeMode, TypeZOrder } from "./types";
 
 export const MAX_TYPE_BLOCKS = 3;
 
@@ -17,6 +17,11 @@ export const typeModeLabels: Record<TypeMode, string> = {
   solid: "Solid",
   invert: "Invert",
   knockout: "Knockout",
+};
+
+export const typeZOrderLabels: Record<TypeZOrder, string> = {
+  below: "Below media",
+  above: "Above media",
 };
 
 type TypePreset = {
@@ -44,6 +49,7 @@ export const typePresets: TypePreset[] = [
       lineHeight: 0.92,
       color: "#ffffff",
       plate: "black",
+      zOrder: "below",
     },
   },
   {
@@ -63,6 +69,7 @@ export const typePresets: TypePreset[] = [
       lineHeight: 0.88,
       color: "#ffffff",
       plate: "black",
+      zOrder: "below",
     },
   },
   {
@@ -82,6 +89,7 @@ export const typePresets: TypePreset[] = [
       lineHeight: 1.35,
       color: "#f4f6fb",
       plate: "black",
+      zOrder: "below",
     },
   },
   {
@@ -101,12 +109,17 @@ export const typePresets: TypePreset[] = [
       lineHeight: 1.2,
       color: "#d7dcf0",
       plate: "black",
+      zOrder: "above",
     },
   },
 ];
 
 export function createTypeBlock(partial: Omit<TypeBlock, "id"> = typePresets[0].partial): TypeBlock {
   return { ...partial, id: crypto.randomUUID() };
+}
+
+export function resolveTypeZOrder(block: TypeBlock): TypeZOrder {
+  return block.zOrder ?? "below";
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -149,19 +162,31 @@ export function TypePanel({
       ) : (
         <div className="type-block-list" role="list">
           {blocks.map((block, index) => (
-            <button
+            <div
               key={block.id}
-              type="button"
               role="listitem"
               className={`type-block-chip ${selectedId === block.id ? "selected" : ""}`}
-              onClick={() => onSelect(block.id)}
             >
-              <span className={`type-mode-dot mode-${block.mode}`} aria-hidden="true" />
-              <span>
-                <b>{block.text.trim() || "Empty text"}</b>
-                <em>{typeModeLabels[block.mode]} · {index + 1}</em>
-              </span>
-            </button>
+              <button
+                type="button"
+                className="type-block-chip-main"
+                onClick={() => onSelect(block.id)}
+              >
+                <span className={`type-mode-dot mode-${block.mode}`} aria-hidden="true" />
+                <span>
+                  <b>{block.text.trim() || "Empty text"}</b>
+                  <em>{typeModeLabels[block.mode]} · {index + 1}</em>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="type-block-chip-delete"
+                aria-label={`Delete ${block.text.trim() || "headline"}`}
+                onClick={() => onRemove(block.id)}
+              >
+                <Trash2 strokeWidth={1.8} />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -250,6 +275,20 @@ export function TypePanel({
                 onClick={() => onUpdate(selected.id, { align })}
               >
                 {align}
+              </button>
+            ))}
+          </div>
+
+          <div className="section-label">Layer</div>
+          <div className="mockup-segment type-zorder-segment" role="group" aria-label="Type layer order">
+            {(["below", "above"] as TypeZOrder[]).map((zOrder) => (
+              <button
+                key={zOrder}
+                type="button"
+                className={(selected.zOrder ?? "below") === zOrder ? "selected" : ""}
+                onClick={() => onUpdate(selected.id, { zOrder })}
+              >
+                {typeZOrderLabels[zOrder]}
               </button>
             ))}
           </div>
@@ -453,12 +492,14 @@ export function TypeCanvasLayer({
   blocks,
   selectedId,
   interactive,
+  layer = "below",
   onSelect,
   onChange,
 }: {
   blocks: TypeBlock[];
   selectedId: string | null;
   interactive: boolean;
+  layer?: TypeZOrder;
   onSelect: (id: string | null) => void;
   onChange: (id: string, update: Partial<TypeBlock>) => void;
 }) {
@@ -466,7 +507,7 @@ export function TypeCanvasLayer({
 
   return (
     <div
-      className={`type-layer${interactive ? " is-interactive" : ""}`}
+      className={`type-layer${layer === "above" ? " is-above-media" : ""}${interactive ? " is-interactive" : ""}`}
       onPointerDown={(event) => {
         if (!interactive) return;
         if (event.target === event.currentTarget) onSelect(null);

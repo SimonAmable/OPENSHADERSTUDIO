@@ -5,12 +5,14 @@ export type MockupPanelSection = "media" | "type" | "view";
 export type TypeMode = "solid" | "invert" | "knockout";
 export type TypeFont = "display" | "sans" | "mono";
 export type TypeAlign = "left" | "center" | "right";
+export type TypeZOrder = "above" | "below";
 export type TypeBlock = {
   id: string;
   text: string;
   mode: TypeMode;
   font: TypeFont;
   align: TypeAlign;
+  zOrder: TypeZOrder;
   x: number;
   y: number;
   width: number;
