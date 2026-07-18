@@ -329,7 +329,7 @@ export const mockupPresets: { id: string; label: string; settings: Omit<MockupSe
 
 export function hexToRgb(hex: string) { const value = hex.replace("#", ""); return [parseInt(value.slice(0, 2), 16) / 255, parseInt(value.slice(2, 4), 16) / 255, parseInt(value.slice(4, 6), 16) / 255] as const; }
 
-type PaperShaderComponent = ComponentType<any>;
+type PaperShaderComponent = ComponentType<Record<string, unknown>>;
 const paperShaders: Record<number, PaperShaderComponent> = {
   14: MeshGradient as PaperShaderComponent, 15: StaticMeshGradient as PaperShaderComponent, 16: StaticRadialGradient as PaperShaderComponent,
   17: Dithering as PaperShaderComponent, 18: GrainGradient as PaperShaderComponent, 19: DotOrbit as PaperShaderComponent,
@@ -840,11 +840,12 @@ function PixelateStaticPreview({ recipe }: { recipe: Recipe }) {
 // downloads so Paper and VFX filters both produce a trustworthy still frame.
 export function StaticMediaPreview({ filter }: { filter: MediaFilterId }) {
   const recipe = useMemo(() => buildMediaPreviewRecipe(filter), [filter]);
-  if (filter === "vfx-pixelate") return <PixelateStaticPreview recipe={recipe} />;
   const captureRef = useRef<HTMLCanvasElement>(null);
   const live = isVfxMediaFilter(filter);
+  const isPixelate = filter === "vfx-pixelate";
 
   useEffect(() => {
+    if (isPixelate) return;
     let cancelled = false;
     captureRef.current?.removeAttribute("data-preview-ready");
 
@@ -895,7 +896,9 @@ export function StaticMediaPreview({ filter }: { filter: MediaFilterId }) {
     };
     void capture();
     return () => { cancelled = true; };
-  }, [recipe, filter]);
+  }, [recipe, filter, isPixelate]);
+
+  if (isPixelate) return <PixelateStaticPreview recipe={recipe} />;
 
   return (
     <main id="media-preview" style={{ width: 640, height: 400, overflow: "hidden", background: "#050609", position: "relative" }}>
@@ -919,8 +922,6 @@ export function StaticMediaPreview({ filter }: { filter: MediaFilterId }) {
     </main>
   );
 }
-
-export { resolveMediaPreviewFilter };
 
 export function SavedRecipePreview({ recipe }: { recipe: Recipe }) {
   // Saved cards use the exact persisted recipe rather than approximating it

@@ -177,7 +177,7 @@ export function VariationsExportPanel({
     });
   };
 
-  const useAsBase = (item: VariationItem, event: MouseEvent) => {
+  const setVariationAsBase = (item: VariationItem, event: MouseEvent) => {
     event.stopPropagation();
     if (!item.previewUrl || busy !== "idle") return;
     setBase({
@@ -409,7 +409,7 @@ export function VariationsExportPanel({
                       <button
                         type="button"
                         className="variation-tile-base-btn"
-                        onClick={(event) => useAsBase(item, event)}
+                        onClick={(event) => setVariationAsBase(item, event)}
                         disabled={busy !== "idle" || isBase}
                       >
                         {isBase ? "Current base" : "Use as base"}
