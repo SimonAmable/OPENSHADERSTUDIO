@@ -160,7 +160,7 @@ export function VariationsExportPanel({
   }), []);
 
   const renderVariationBlob = useCallback(async (variation: Recipe, width: number, height: number) => {
-    if (isPaperStyle(variation.style)) {
+    if (isPaperStyle(variation.style) || variation.kind === "media" || variation.kind === "ascii") {
       const source = await captureMounted(variation, width, height);
       return scaleCanvasToPngBlob(source, width, height);
     }

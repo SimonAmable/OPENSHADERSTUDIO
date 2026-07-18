@@ -59,7 +59,7 @@ export const sampleAssets: SampleAsset[] = [
   },
 ];
 
-export function samplesForKind(kind: Extract<VisualKind, "media"> | "ascii" = "media") {
+export function samplesForKind(kind: Extract<VisualKind, "media" | "ascii"> = "media") {
   return sampleAssets.filter((asset) => asset.for.includes(kind));
 }
 
@@ -67,11 +67,11 @@ export function getSampleById(id: string) {
   return sampleAssets.find((asset) => asset.id === id) ?? null;
 }
 
-export function defaultSampleId(kind: Extract<VisualKind, "media"> | "ascii" = "media") {
+export function defaultSampleId(kind: Extract<VisualKind, "media" | "ascii"> = "media") {
   return samplesForKind(kind)[0]?.id ?? sampleAssets[0]?.id ?? "aurora";
 }
 
-export function defaultMediaSource(kind: Extract<VisualKind, "media"> | "ascii" = "media"): MediaSource {
+export function defaultMediaSource(kind: Extract<VisualKind, "media" | "ascii"> = "media"): MediaSource {
   return { type: "sample", sampleId: defaultSampleId(kind) };
 }
 
@@ -85,7 +85,7 @@ export function resolveMediaSource(source: MediaSource | null): { url: string; m
   return { url: sample.path, mediaType: sample.type, sampleId: sample.id };
 }
 
-export function pickRandomSample(kind: Extract<VisualKind, "media"> | "ascii" = "media", exceptId?: string) {
+export function pickRandomSample(kind: Extract<VisualKind, "media" | "ascii"> = "media", exceptId?: string) {
   const pool = samplesForKind(kind).filter((asset) => asset.id !== exceptId);
   const list = pool.length ? pool : samplesForKind(kind);
   if (!list.length) return defaultMediaSource(kind);

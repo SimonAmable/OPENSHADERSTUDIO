@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { BookOpen, ImageDown, WandSparkles } from "lucide-react";
 import { ColorPanels, Dithering, DotGrid, DotOrbit, GodRays, GrainGradient, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, PulsingBorder, SimplexNoise, SmokeRing, Spiral, StaticMeshGradient, StaticRadialGradient, Swirl, Voronoi, Warp, Waves } from "@paper-design/shaders-react";
 import { MediaCanvas, queryMediaCanvas, waitForMediaCanvas } from "./media-canvas";
+import { AsciiCanvas, queryAsciiCanvas, waitForAsciiCanvas } from "./ascii-canvas";
+import { asciiStyleNames } from "./ascii-catalog";
 import { exportMediaPng, resolveMediaImageForExport } from "./media-export";
 import { isPaperMediaFilter, isVfxMediaFilter, mediaFilterNames, mediaPreviewSampleId } from "./media-catalog";
 import type { MediaFilterId, Recipe, SavedPalette, ThemeOption, MockupSettings, Tab } from "./types";
@@ -185,7 +187,9 @@ void main(){
 }`;
 
 export const defaultRecipe: Recipe = {
-  id: "silk-01", name: "Silk", kind: "shader", style: 0, mediaFilter: "paper-water", mediaSource: null,
+  id: "silk-01", name: "Silk", kind: "shader", style: 0, mediaFilter: "paper-water",
+  asciiStyle: "characters", asciiBlendMode: "normal", asciiCharset: "standard", asciiAnimationStyle: "mixed",
+  mediaSource: null,
   palette: ["#060914", "#273dff", "#00ddff", "#e8fbff"],
   intensity: .76, zoom: 1.02, warp: .2, contrast: .56, speed: 1, drift: .5, blur: 0, animate: true, reverse: false, grain: .045, rotate: 0, offsetX: 0, offsetY: 0, seed: 1, smoothBlend: false,
   cursorEnabled: true, cursorEffect: "spotlight", cursorStrength: .5, cursorRadius: .5, glsl: fragmentShader,
@@ -196,6 +200,7 @@ export const defaultRecipe: Recipe = {
 export const appPresets: Recipe[] = [{
   id: "electric-warp-stripes", name: "Electric Warp stripes", kind: "shader", style: 10,
   mediaFilter: "paper-water", mediaSource: null,
+  asciiStyle: "characters", asciiBlendMode: "normal", asciiCharset: "standard", asciiAnimationStyle: "mixed",
   palette: ["#09151a", "#146b82", "#4bbad7", "#e6faff"],
   intensity: 0.7770323292260786, zoom: 0.6589337896921063, warp: 0.6077682917880166,
   contrast: 0.6671220502700947, speed: 0.15200116236584896, drift: 0.6233140640072878,
@@ -457,6 +462,18 @@ export function paperProps(recipe: Recipe, frozen: boolean, cursor: PaperCursorO
 
 export function formatPaperPropsForExport(recipe: Recipe) {
   return Object.entries(paperProps(recipe, false)).map(([key, value]) => `      ${key}={${JSON.stringify(value)}}`).join("\n");
+}
+
+export function queryVisualCanvas(recipe: Recipe) {
+  if (recipe.kind === "ascii") return queryAsciiCanvas();
+  if (recipe.kind === "media") return queryMediaCanvas();
+  return queryShaderCanvas(recipe.style);
+}
+
+export async function waitForVisualCanvas(recipe: Recipe, attempts = 90) {
+  if (recipe.kind === "ascii") return waitForAsciiCanvas(attempts);
+  if (recipe.kind === "media") return waitForMediaCanvas(attempts);
+  return waitForShaderCanvas(recipe.style, attempts);
 }
 
 export function queryShaderCanvas(style: number) {
@@ -725,6 +742,7 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
 }
 
 export function ShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; frozen: boolean; onError: (message: string | null) => void }) {
+  if (recipe.kind === "ascii") return <AsciiCanvas recipe={recipe} frozen={frozen} />;
   if (recipe.kind === "media") return <MediaCanvas recipe={recipe} frozen={frozen} />;
   if (isPaperStyle(recipe.style)) return <PaperShaderCanvas recipe={recipe} frozen={frozen} />;
   return <NativeShaderCanvas recipe={recipe} frozen={frozen} onError={onError} />;
@@ -736,6 +754,14 @@ export function ShaderThumbnail({ style }: { style: number }) {
 
 export function MediaThumbnail({ filter }: { filter: MediaFilterId }) {
   return <img className="shader-thumbnail media-thumbnail" src={`/media-previews/${filter}.png`} alt="" aria-hidden="true" />;
+}
+
+export function AsciiThumbnail({ style }: { style: import("./types").AsciiStyleId }) {
+  return (
+    <span className="shader-thumbnail ascii-thumbnail" aria-hidden="true">
+      {asciiStyleNames[style]?.slice(0, 2) ?? "AS"}
+    </span>
+  );
 }
 
 function buildMediaPreviewRecipe(filter: MediaFilterId): Recipe {

@@ -1,12 +1,26 @@
 import type { MediaFilterId, MediaSource, Recipe, VisualKind } from "./types";
+import {
+  DEFAULT_ASCII_ANIMATION,
+  DEFAULT_ASCII_BLEND,
+  DEFAULT_ASCII_CHARSET,
+  DEFAULT_ASCII_STYLE,
+  isAsciiAnimationStyle,
+  isAsciiBlendMode,
+  isAsciiCharsetId,
+  isAsciiStyleId,
+} from "./ascii-catalog";
 import { isMediaFilterId } from "./media-catalog";
 import { defaultMediaSource } from "./samples";
 
 export const DEFAULT_MEDIA_FILTER: MediaFilterId = "paper-water";
 
 export function normalizeRecipe(input: Partial<Recipe> & { id?: string; name?: string; style?: number; palette?: string[]; glsl?: string }, fallbackGlsl: string): Recipe {
-  const kind: VisualKind = input.kind === "media" ? "media" : "shader";
+  const kind: VisualKind = input.kind === "media" || input.kind === "ascii" ? input.kind : "shader";
   const mediaFilter = isMediaFilterId(input.mediaFilter) ? input.mediaFilter : DEFAULT_MEDIA_FILTER;
+  const asciiStyle = isAsciiStyleId(input.asciiStyle) ? input.asciiStyle : DEFAULT_ASCII_STYLE;
+  const asciiBlendMode = isAsciiBlendMode(input.asciiBlendMode) ? input.asciiBlendMode : DEFAULT_ASCII_BLEND;
+  const asciiCharset = isAsciiCharsetId(input.asciiCharset) ? input.asciiCharset : DEFAULT_ASCII_CHARSET;
+  const asciiAnimationStyle = isAsciiAnimationStyle(input.asciiAnimationStyle) ? input.asciiAnimationStyle : DEFAULT_ASCII_ANIMATION;
   let mediaSource: MediaSource | null = null;
   if (input.mediaSource && typeof input.mediaSource === "object") {
     if (input.mediaSource.type === "sample" && typeof input.mediaSource.sampleId === "string") {
@@ -19,14 +33,20 @@ export function normalizeRecipe(input: Partial<Recipe> & { id?: string; name?: s
       };
     }
   }
-  if (kind === "media" && !mediaSource) mediaSource = defaultMediaSource("media");
+  if ((kind === "media" || kind === "ascii") && !mediaSource) {
+    mediaSource = defaultMediaSource(kind === "ascii" ? "ascii" : "media");
+  }
 
   return {
     id: input.id ?? crypto.randomUUID(),
-    name: input.name ?? (kind === "media" ? "Media look" : "Shader"),
+    name: input.name ?? (kind === "ascii" ? "ASCII look" : kind === "media" ? "Media look" : "Shader"),
     kind,
     style: typeof input.style === "number" ? input.style : 0,
     mediaFilter,
+    asciiStyle,
+    asciiBlendMode,
+    asciiCharset,
+    asciiAnimationStyle,
     mediaSource,
     palette: Array.isArray(input.palette) && input.palette.length >= 2 ? input.palette : ["#060914", "#273dff", "#00ddff", "#e8fbff"],
     intensity: typeof input.intensity === "number" ? input.intensity : .76,

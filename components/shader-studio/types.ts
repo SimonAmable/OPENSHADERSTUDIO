@@ -22,7 +22,61 @@ export type TypeBlock = {
   color: string;
   plate: "black" | "white";
 };
-export type VisualKind = "shader" | "media";
+export type VisualKind = "shader" | "media" | "ascii";
+
+export type AsciiStyleId =
+  | "characters"
+  | "braille"
+  | "mixed"
+  | "hex-dump"
+  | "matrix"
+  | "dots"
+  | "cross"
+  | "diamond"
+  | "rings"
+  | "hearts"
+  | "stars"
+  | "hexagons"
+  | "triangles"
+  | "bubbles"
+  | "lines"
+  | "diagonal"
+  | "hatching"
+  | "contour"
+  | "dither"
+  | "pixel-art"
+  | "mosaic"
+  | "bricks"
+  | "voxel"
+  | "half-blocks"
+  | "disco";
+
+export type AsciiBlendMode =
+  | "normal"
+  | "multiply"
+  | "screen"
+  | "overlay"
+  | "difference"
+  | "lighten"
+  | "darken";
+
+export type AsciiCharsetId =
+  | "standard"
+  | "binary"
+  | "blocks"
+  | "minimal"
+  | "detailed"
+  | "braille-set"
+  | "shapes";
+
+export type AsciiAnimationStyle =
+  | "mixed"
+  | "shimmer"
+  | "scanlines"
+  | "film-grain"
+  | "glitch"
+  | "film-dust"
+  | "matrix-rain";
 export type VisualSection = "source" | "style" | "palette" | "surface" | "motion" | "cursor";
 export type CursorEffect = "push" | "repel" | "swirl" | "ripple" | "spotlight";
 export type ExportTab = "image" | "video" | "variations" | "mockup" | "prompt" | "react" | "glsl";
@@ -84,6 +138,10 @@ export type Recipe = {
   kind: VisualKind;
   style: number;
   mediaFilter: MediaFilterId;
+  asciiStyle: AsciiStyleId;
+  asciiBlendMode: AsciiBlendMode;
+  asciiCharset: AsciiCharsetId;
+  asciiAnimationStyle: AsciiAnimationStyle;
   mediaSource: MediaSource | null;
   palette: string[];
   intensity: number;

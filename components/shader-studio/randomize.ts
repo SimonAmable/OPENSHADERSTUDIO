@@ -1,5 +1,6 @@
 import type { CursorEffect, MediaFilterId, MediaSource, Recipe, VisualKind } from "./types";
 import { fragmentShader, palettes, presetSettings, styleNames } from "./canvas";
+import { asciiStyleNames, pickOtherAsciiStyle, randomAsciiAnimationStyle, randomAsciiStyle } from "./ascii-catalog";
 import { mediaFilterNames, pickOtherMediaFilter } from "./media-catalog";
 import { defaultMediaSource, pickRandomSample } from "./samples";
 
@@ -23,6 +24,13 @@ function randomSurface() {
   } satisfies Partial<Recipe>;
 }
 
+function randomAsciiMotion() {
+  return {
+    asciiAnimationStyle: randomAsciiAnimationStyle(),
+    warp: 0.2 + Math.random() * 0.65,
+  } satisfies Partial<Recipe>;
+}
+
 function randomMotionAndCursor() {
   return {
     speed: Math.random() * 2.4,
@@ -42,12 +50,19 @@ function pickOtherStyle(current: number) {
   return choices[Math.floor(Math.random() * choices.length)];
 }
 
-function keepMediaSource(recipe: Recipe): MediaSource | null {
-  return recipe.mediaSource ?? defaultMediaSource("media");
+function keepMediaSource(recipe: Recipe, kind: Extract<VisualKind, "media" | "ascii"> = "media"): MediaSource | null {
+  return recipe.mediaSource ?? defaultMediaSource(kind);
 }
 
 function randomMediaFilter(): MediaFilterId {
   return MEDIA_FILTER_IDS[Math.floor(Math.random() * MEDIA_FILTER_IDS.length)];
+}
+
+function randomVisualKind(): VisualKind {
+  const roll = Math.random();
+  if (roll < 0.34) return "shader";
+  if (roll < 0.67) return "media";
+  return "ascii";
 }
 
 export function recolourRecipe(recipe: Recipe): Partial<Recipe> {
@@ -55,9 +70,9 @@ export function recolourRecipe(recipe: Recipe): Partial<Recipe> {
 }
 
 export function remixRecipe(recipe: Recipe): Partial<Recipe> {
-  if (recipe.kind === "media") {
+  if (recipe.kind === "media" || recipe.kind === "ascii") {
     return {
-      mediaSource: keepMediaSource(recipe),
+      mediaSource: keepMediaSource(recipe, recipe.kind),
       ...randomSurface(),
     };
   }
@@ -65,12 +80,21 @@ export function remixRecipe(recipe: Recipe): Partial<Recipe> {
 }
 
 export function restyleRecipe(recipe: Recipe): Partial<Recipe> {
+  if (recipe.kind === "ascii") {
+    const asciiStyle = pickOtherAsciiStyle(recipe.asciiStyle);
+    return {
+      name: asciiStyleNames[asciiStyle] ?? "Restyled ASCII",
+      asciiStyle,
+      mediaSource: keepMediaSource(recipe, "ascii"),
+      palette: recipe.palette,
+    };
+  }
   if (recipe.kind === "media") {
     const mediaFilter = pickOtherMediaFilter(recipe.mediaFilter);
     return {
       name: mediaFilterNames[mediaFilter] ?? "Restyled media",
       mediaFilter,
-      mediaSource: keepMediaSource(recipe),
+      mediaSource: keepMediaSource(recipe, "media"),
       palette: recipe.palette,
     };
   }
@@ -82,13 +106,27 @@ export function restyleRecipe(recipe: Recipe): Partial<Recipe> {
 
 export function inspireRecipe(recipe?: Recipe): Partial<Recipe> {
   const kind: VisualKind = recipe?.kind ?? "shader";
+  if (kind === "ascii") {
+    const asciiStyle = randomAsciiStyle();
+    return {
+      kind: "ascii",
+      name: asciiStyleNames[asciiStyle] ?? "Inspired ASCII",
+      asciiStyle,
+      mediaSource: keepMediaSource(recipe ?? ({ mediaSource: null } as Recipe), "ascii"),
+      palette: palettes[Math.floor(Math.random() * palettes.length)],
+      ...randomSurface(),
+      ...randomMotionAndCursor(),
+      ...randomAsciiMotion(),
+      glsl: fragmentShader,
+    };
+  }
   if (kind === "media") {
     const mediaFilter = randomMediaFilter();
     return {
       kind: "media",
       name: mediaFilterNames[mediaFilter] ?? "Inspired media",
       mediaFilter,
-      mediaSource: keepMediaSource(recipe ?? ({ mediaSource: null } as Recipe)),
+      mediaSource: keepMediaSource(recipe ?? ({ mediaSource: null } as Recipe), "media"),
       palette: palettes[Math.floor(Math.random() * palettes.length)],
       ...randomSurface(),
       ...randomMotionAndCursor(),
@@ -107,7 +145,24 @@ export function inspireRecipe(recipe?: Recipe): Partial<Recipe> {
 }
 
 export function varyRecipe(recipe: Recipe): Partial<Recipe> {
-  const kind: VisualKind = Math.random() > 0.5 ? "shader" : "media";
+  const kind: VisualKind = randomVisualKind();
+  if (kind === "ascii") {
+    const asciiStyle = randomAsciiStyle();
+    const currentSampleId = recipe.mediaSource?.type === "sample" ? recipe.mediaSource.sampleId : undefined;
+    return {
+      kind: "ascii",
+      name: asciiStyleNames[asciiStyle] ?? "Varied ASCII",
+      asciiStyle,
+      mediaSource: recipe.mediaSource?.type === "upload"
+        ? recipe.mediaSource
+        : pickRandomSample("ascii", currentSampleId),
+      palette: palettes[Math.floor(Math.random() * palettes.length)],
+      ...randomSurface(),
+      ...randomMotionAndCursor(),
+      ...randomAsciiMotion(),
+      glsl: fragmentShader,
+    };
+  }
   if (kind === "media") {
     const mediaFilter = randomMediaFilter();
     const currentSampleId = recipe.mediaSource?.type === "sample" ? recipe.mediaSource.sampleId : undefined;
@@ -170,7 +225,7 @@ export function generateVariationRecipes(base: Recipe, modes: VariationMode[], c
 }
 
 export const VARIATION_MODE_META: Record<VariationMode, { label: string; hint: string }> = {
-  vary: { label: "Vary", hint: "New everything — may switch Shader or Media" },
+  vary: { label: "Vary", hint: "New everything — may switch Shader, Media, or ASCII" },
   inspire: { label: "Inspire", hint: "Brand-new look in the current mode" },
   recolour: { label: "Recolour", hint: "Keep style and settings; new colours" },
   remix: { label: "Remix", hint: "New surface; keep style, colours, motion, and cursor" },
