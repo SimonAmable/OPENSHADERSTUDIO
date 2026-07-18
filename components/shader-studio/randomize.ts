@@ -1,9 +1,12 @@
-import type { CursorEffect, Recipe } from "./types";
+import type { CursorEffect, MediaFilterId, MediaSource, Recipe, VisualKind } from "./types";
 import { fragmentShader, palettes, presetSettings, styleNames } from "./canvas";
+import { mediaFilterNames, pickOtherMediaFilter } from "./media-catalog";
+import { defaultMediaSource, pickRandomSample } from "./samples";
 
-export type VariationMode = "inspire" | "recolour" | "remix" | "restyle";
+export type VariationMode = "vary" | "inspire" | "recolour" | "remix" | "restyle";
 
 const CURSOR_EFFECTS: CursorEffect[] = ["push", "repel", "swirl", "ripple", "spotlight"];
+const MEDIA_FILTER_IDS = Object.keys(mediaFilterNames) as MediaFilterId[];
 
 function randomSurface() {
   return {
@@ -39,26 +42,91 @@ function pickOtherStyle(current: number) {
   return choices[Math.floor(Math.random() * choices.length)];
 }
 
-export function recolourRecipe(_recipe: Recipe): Partial<Recipe> {
+function keepMediaSource(recipe: Recipe): MediaSource | null {
+  return recipe.mediaSource ?? defaultMediaSource("media");
+}
+
+function randomMediaFilter(): MediaFilterId {
+  return MEDIA_FILTER_IDS[Math.floor(Math.random() * MEDIA_FILTER_IDS.length)];
+}
+
+export function recolourRecipe(recipe: Recipe): Partial<Recipe> {
   return { palette: palettes[Math.floor(Math.random() * palettes.length)] };
 }
 
 export function remixRecipe(recipe: Recipe): Partial<Recipe> {
-  const style = pickOtherStyle(recipe.style);
-  const name = styleNames[style] ?? "Remixed shader";
-  return { name, style, ...randomSurface(), glsl: fragmentShader };
+  if (recipe.kind === "media") {
+    return {
+      mediaSource: keepMediaSource(recipe),
+      ...randomSurface(),
+    };
+  }
+  return { ...randomSurface() };
 }
 
 export function restyleRecipe(recipe: Recipe): Partial<Recipe> {
+  if (recipe.kind === "media") {
+    const mediaFilter = pickOtherMediaFilter(recipe.mediaFilter);
+    return {
+      name: mediaFilterNames[mediaFilter] ?? "Restyled media",
+      mediaFilter,
+      mediaSource: keepMediaSource(recipe),
+      palette: recipe.palette,
+    };
+  }
   const style = pickOtherStyle(recipe.style);
   const name = styleNames[style] ?? "Restyled shader";
   const settings = presetSettings[style] ?? {};
   return { ...settings, name, style, palette: recipe.palette, glsl: fragmentShader };
 }
 
-export function inspireRecipe(): Partial<Recipe> {
+export function inspireRecipe(recipe?: Recipe): Partial<Recipe> {
+  const kind: VisualKind = recipe?.kind ?? "shader";
+  if (kind === "media") {
+    const mediaFilter = randomMediaFilter();
+    return {
+      kind: "media",
+      name: mediaFilterNames[mediaFilter] ?? "Inspired media",
+      mediaFilter,
+      mediaSource: keepMediaSource(recipe ?? ({ mediaSource: null } as Recipe)),
+      palette: palettes[Math.floor(Math.random() * palettes.length)],
+      ...randomSurface(),
+      ...randomMotionAndCursor(),
+      glsl: fragmentShader,
+    };
+  }
   return {
+    kind: "shader",
     name: "Inspired shader",
+    style: Math.floor(Math.random() * 34),
+    palette: palettes[Math.floor(Math.random() * palettes.length)],
+    ...randomSurface(),
+    ...randomMotionAndCursor(),
+    glsl: fragmentShader,
+  };
+}
+
+export function varyRecipe(recipe: Recipe): Partial<Recipe> {
+  const kind: VisualKind = Math.random() > 0.5 ? "shader" : "media";
+  if (kind === "media") {
+    const mediaFilter = randomMediaFilter();
+    const currentSampleId = recipe.mediaSource?.type === "sample" ? recipe.mediaSource.sampleId : undefined;
+    return {
+      kind: "media",
+      name: mediaFilterNames[mediaFilter] ?? "Varied media",
+      mediaFilter,
+      mediaSource: recipe.mediaSource?.type === "upload"
+        ? recipe.mediaSource
+        : pickRandomSample("media", currentSampleId),
+      palette: palettes[Math.floor(Math.random() * palettes.length)],
+      ...randomSurface(),
+      ...randomMotionAndCursor(),
+      glsl: fragmentShader,
+    };
+  }
+  return {
+    kind: "shader",
+    name: "Varied shader",
     style: Math.floor(Math.random() * 34),
     palette: palettes[Math.floor(Math.random() * palettes.length)],
     ...randomSurface(),
@@ -70,8 +138,11 @@ export function inspireRecipe(): Partial<Recipe> {
 export function applyVariationMode(recipe: Recipe, mode: VariationMode): Recipe {
   let update: Partial<Recipe>;
   switch (mode) {
+    case "vary":
+      update = varyRecipe(recipe);
+      break;
     case "inspire":
-      update = inspireRecipe();
+      update = inspireRecipe(recipe);
       break;
     case "recolour":
       update = recolourRecipe(recipe);
@@ -99,8 +170,9 @@ export function generateVariationRecipes(base: Recipe, modes: VariationMode[], c
 }
 
 export const VARIATION_MODE_META: Record<VariationMode, { label: string; hint: string }> = {
-  inspire: { label: "Inspire", hint: "Brand-new style, colours, and settings" },
+  vary: { label: "Vary", hint: "New everything — may switch Shader or Media" },
+  inspire: { label: "Inspire", hint: "Brand-new look in the current mode" },
   recolour: { label: "Recolour", hint: "Keep style and settings; new colours" },
-  remix: { label: "Remix", hint: "New style and surface; keep colours, motion, and cursor" },
+  remix: { label: "Remix", hint: "New surface; keep style, colours, motion, and cursor" },
   restyle: { label: "Restyle", hint: "New style; keep the palette" },
 };

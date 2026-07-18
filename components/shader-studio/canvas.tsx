@@ -1,9 +1,17 @@
 "use client";
 
 import { type ComponentType, type CSSProperties, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { BookOpen, ImageDown, WandSparkles } from "lucide-react";
 import { ColorPanels, Dithering, DotGrid, DotOrbit, GodRays, GrainGradient, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, PulsingBorder, SimplexNoise, SmokeRing, Spiral, StaticMeshGradient, StaticRadialGradient, Swirl, Voronoi, Warp, Waves } from "@paper-design/shaders-react";
-import type { Recipe, SavedPalette, ThemeOption, MockupSettings, Tab } from "./types";
+import { MediaCanvas, queryMediaCanvas, waitForMediaCanvas } from "./media-canvas";
+import { exportMediaPng, resolveMediaImageForExport } from "./media-export";
+import { isPaperMediaFilter, isVfxMediaFilter, mediaFilterNames, mediaPreviewSampleId } from "./media-catalog";
+import type { MediaFilterId, Recipe, SavedPalette, ThemeOption, MockupSettings, Tab } from "./types";
+import { recordCanvasAnimation as encodeCanvasAnimation, exportExtensionForMime, exportVideoBitrate } from "./video-encoder";
+
+export { exportExtensionForMime, exportVideoBitrate };
+export const recordCanvasAnimation = encodeCanvasAnimation;
 
 export const fragmentShader = `precision highp float;
 uniform vec2 u_resolution;
@@ -177,7 +185,8 @@ void main(){
 }`;
 
 export const defaultRecipe: Recipe = {
-  id: "silk-01", name: "Silk", style: 0, palette: ["#060914", "#273dff", "#00ddff", "#e8fbff"],
+  id: "silk-01", name: "Silk", kind: "shader", style: 0, mediaFilter: "paper-water", mediaSource: null,
+  palette: ["#060914", "#273dff", "#00ddff", "#e8fbff"],
   intensity: .76, zoom: 1.02, warp: .2, contrast: .56, speed: 1, drift: .5, blur: 0, animate: true, reverse: false, grain: .045, rotate: 0, offsetX: 0, offsetY: 0, seed: 1, smoothBlend: false,
   cursorEnabled: true, cursorEffect: "spotlight", cursorStrength: .5, cursorRadius: .5, glsl: fragmentShader,
 };
@@ -185,7 +194,8 @@ export const defaultRecipe: Recipe = {
 // App presets are part of the product, not a particular browser's library.
 // Keep user-created recipes in localStorage separately so they remain personal.
 export const appPresets: Recipe[] = [{
-  id: "electric-warp-stripes", name: "Electric Warp stripes", style: 10,
+  id: "electric-warp-stripes", name: "Electric Warp stripes", kind: "shader", style: 10,
+  mediaFilter: "paper-water", mediaSource: null,
   palette: ["#09151a", "#146b82", "#4bbad7", "#e6faff"],
   intensity: 0.7770323292260786, zoom: 0.6589337896921063, warp: 0.6077682917880166,
   contrast: 0.6671220502700947, speed: 0.15200116236584896, drift: 0.6233140640072878,
@@ -351,7 +361,7 @@ function paperDriftOffset(recipe: Recipe) {
   return { x: recipe.drift * Math.sin(phase) * 0.55, y: recipe.drift * Math.cos(phase * 1.13) * 0.55 };
 }
 
-function paperShared(recipe: Recipe, frozen: boolean, cursor: PaperCursorOffset = { x: 0, y: 0, rotation: 0 }) {
+function paperShared(recipe: Recipe, frozen: boolean, cursor: PaperCursorOffset = { x: 0, y: 0, rotation: 0 }, pixelBudget = 1920 * 1080) {
   const drift = paperDriftOffset(recipe);
   return {
     scale: recipe.zoom,
@@ -361,7 +371,7 @@ function paperShared(recipe: Recipe, frozen: boolean, cursor: PaperCursorOffset 
     speed: paperSpeed(recipe, frozen),
     frame: recipe.seed,
     minPixelRatio: 1,
-    maxPixelCount: 1920 * 1080,
+    maxPixelCount: pixelBudget,
   };
 }
 
@@ -390,9 +400,9 @@ function paperCanvasStyle(recipe: Recipe): CSSProperties {
   return style;
 }
 
-export function paperProps(recipe: Recipe, frozen: boolean, cursor: PaperCursorOffset = { x: 0, y: 0, rotation: 0 }) {
+export function paperProps(recipe: Recipe, frozen: boolean, cursor: PaperCursorOffset = { x: 0, y: 0, rotation: 0 }, pixelBudget = 1920 * 1080) {
   const palette = paperPalette(recipe);
-  const shared = paperShared(recipe, frozen, cursor);
+  const shared = paperShared(recipe, frozen, cursor, pixelBudget);
   const softness = paperSoftness(recipe);
   const mid = palette[Math.floor(palette.length / 2)] ?? palette[0];
   const distortion = { distortion: recipe.warp };
@@ -450,10 +460,26 @@ export function formatPaperPropsForExport(recipe: Recipe) {
 }
 
 export function queryShaderCanvas(style: number) {
-  const selector = isPaperStyle(style)
-    ? ".canvas-area .paper-shader-canvas canvas, .export-preview .paper-shader-canvas canvas, .mockup-export-preview .paper-shader-canvas canvas, .camera-pad .paper-shader-canvas canvas"
-    : ".canvas-area .shader-canvas, .export-preview .shader-canvas, .mockup-export-preview .shader-canvas, .camera-pad .shader-canvas";
-  return document.querySelector<HTMLCanvasElement>(selector);
+  // Prefer live export previews over the main stage — the stage is frozen while export modals are open.
+  const selectors = isPaperStyle(style)
+    ? [
+        "[data-paper-export] canvas",
+        ".mockup-export-preview .paper-shader-canvas canvas",
+        ".export-preview .paper-shader-canvas canvas",
+        ".canvas-area .paper-shader-canvas canvas",
+        ".camera-pad .paper-shader-canvas canvas",
+      ]
+    : [
+        ".mockup-export-preview .shader-canvas",
+        ".export-preview .shader-canvas",
+        ".canvas-area .shader-canvas",
+        ".camera-pad .shader-canvas",
+      ];
+  for (const selector of selectors) {
+    const canvas = document.querySelector<HTMLCanvasElement>(selector);
+    if (canvas && canvas.width > 0 && canvas.height > 0) return canvas;
+  }
+  return null;
 }
 
 type PaperShaderMountHandle = {
@@ -464,55 +490,111 @@ type PaperShaderMountHandle = {
 
 type PaperShaderHost = HTMLElement & { paperShaderMount?: PaperShaderMountHandle };
 
-export function queryPaperShaderMount() {
+export function queryPaperShaderMount(root: ParentNode = document) {
+  const local = root.querySelector<PaperShaderHost>("[data-paper-shader]");
+  if (local?.paperShaderMount) return local.paperShaderMount;
+  if (root !== document) return null;
   return document.querySelector<PaperShaderHost>(".export-preview [data-paper-shader], .canvas-area [data-paper-shader]")?.paperShaderMount ?? null;
 }
 
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+function paperExportDrawStyle(recipe: Recipe) {
+  if (paperUsesNativeSurface(recipe.style)) {
+    return { opacity: 1, filter: recipe.blur ? `blur(${recipe.blur}px)` : "none" };
+  }
+  const contrast = `contrast(${0.65 + recipe.contrast * 0.7})`;
+  return {
+    opacity: 0.35 + recipe.intensity * 0.65,
+    filter: recipe.blur ? `${contrast} blur(${recipe.blur}px)` : contrast,
+  };
 }
 
-export async function recordCanvasAnimation({
-  canvas,
-  frameIndexes,
-  fps,
-  mimeType,
-  bitrate,
-  onProgress,
-  renderFrame,
-}: {
+/** Draw a paper-shader canvas into an export target, baking the CSS opacity/contrast/blur used on screen. */
+export function drawPaperShaderToCanvas(
+  target: HTMLCanvasElement | CanvasRenderingContext2D,
+  source: HTMLCanvasElement,
+  recipe: Recipe,
+  width?: number,
+  height?: number,
+) {
+  const ctx = target instanceof HTMLCanvasElement ? target.getContext("2d") : target;
+  if (!ctx) throw new Error("Could not create export canvas");
+  const outW = width ?? (target instanceof HTMLCanvasElement ? target.width : ctx.canvas.width);
+  const outH = height ?? (target instanceof HTMLCanvasElement ? target.height : ctx.canvas.height);
+  const style = paperExportDrawStyle(recipe);
+  ctx.save();
+  ctx.globalAlpha = style.opacity;
+  ctx.filter = style.filter;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, 0, 0, outW, outH);
+  ctx.restore();
+}
+
+function PaperExportCanvas({ recipe, width, height }: { recipe: Recipe; width: number; height: number }) {
+  const Component = paperShaders[recipe.style];
+  if (!Component) return null;
+  const props = paperProps(recipe, true, { x: 0, y: 0, rotation: 0 }, width * height);
+  return (
+    <div className="paper-shader-host" data-paper-export-host="" style={{ width, height, touchAction: "none" }}>
+      <Component
+        className="paper-shader-canvas"
+        width={width}
+        height={height}
+        {...props}
+        style={{ width, height }}
+      />
+    </div>
+  );
+}
+
+export type PaperExportSurface = {
+  mount: PaperShaderMountHandle;
   canvas: HTMLCanvasElement;
-  frameIndexes: number[];
-  fps: number;
-  mimeType: string;
-  bitrate: number;
-  onProgress: (progress: number) => void;
-  renderFrame: (timeSec: number) => void | Promise<void>;
-}): Promise<Blob> {
-  const stream = canvas.captureStream(0);
-  const track = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
-  const chunks: BlobPart[] = [];
-  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
-  const finished = new Promise<Blob>((resolve, reject) => {
-    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
-    recorder.onerror = () => reject(new Error("Video encoding failed"));
-    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
-  });
-  const frameDurationMs = 1000 / fps;
-  const timelineStart = performance.now();
-  recorder.start();
-  for (let index = 0; index < frameIndexes.length; index += 1) {
-    await renderFrame(frameIndexes[index] / fps);
-    track.requestFrame?.();
-    onProgress((index + 1) / frameIndexes.length);
-    const targetTime = timelineStart + (index + 1) * frameDurationMs;
-    const waitMs = targetTime - performance.now();
-    if (waitMs > 0) await sleep(waitMs);
+  dispose: () => void;
+};
+
+/** Mount a full-resolution offscreen paper shader for deterministic high-quality export. */
+export async function createPaperExportSurface(recipe: Recipe, width: number, height: number): Promise<PaperExportSurface> {
+  const host = document.createElement("div");
+  host.setAttribute("data-paper-export", "");
+  host.style.cssText = `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;overflow:hidden;pointer-events:none;opacity:0;z-index:-1;`;
+  document.body.appendChild(host);
+
+  let root: Root | null = createRoot(host);
+  root.render(<PaperExportCanvas recipe={recipe} width={width} height={height} />);
+
+  const dispose = () => {
+    try { root?.unmount(); } catch { /* ignore */ }
+    root = null;
+    host.remove();
+  };
+
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const mount = queryPaperShaderMount(host);
+    const canvas = mount?.canvasElement ?? host.querySelector("canvas");
+    if (mount && canvas && canvas.width >= width * 0.95 && canvas.height >= height * 0.95) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      return { mount, canvas, dispose };
+    }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   }
-  recorder.stop();
-  const blob = await finished;
-  stream.getTracks().forEach((item) => item.stop());
-  return blob;
+
+  dispose();
+  throw new Error("Could not prepare a full-resolution shader for export");
+}
+
+export async function waitForShaderCanvas(style: number, attempts = 90) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const canvas = queryShaderCanvas(style);
+    if (canvas && canvas.width > 0 && canvas.height > 0) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      return canvas;
+    }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+  throw new Error("Live shader preview is unavailable");
 }
 
 function PaperShaderCanvas({ recipe, frozen, onReady }: { recipe: Recipe; frozen: boolean; onReady?: (canvas: HTMLCanvasElement) => void }) {
@@ -643,12 +725,62 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
 }
 
 export function ShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; frozen: boolean; onError: (message: string | null) => void }) {
+  if (recipe.kind === "media") return <MediaCanvas recipe={recipe} frozen={frozen} />;
   if (isPaperStyle(recipe.style)) return <PaperShaderCanvas recipe={recipe} frozen={frozen} />;
   return <NativeShaderCanvas recipe={recipe} frozen={frozen} onError={onError} />;
 }
 
 export function ShaderThumbnail({ style }: { style: number }) {
   return <img className="shader-thumbnail" src={`/style-previews/${style}.png`} alt="" aria-hidden="true" />;
+}
+
+export function MediaThumbnail({ filter }: { filter: MediaFilterId }) {
+  return <img className="shader-thumbnail media-thumbnail" src={`/media-previews/${filter}.png`} alt="" aria-hidden="true" />;
+}
+
+function buildMediaPreviewRecipe(filter: MediaFilterId): Recipe {
+  const vfx = isVfxMediaFilter(filter);
+  return {
+    ...defaultRecipe,
+    id: `media-preview-${filter}`,
+    name: mediaFilterNames[filter] ?? "Media",
+    kind: "media",
+    mediaFilter: filter,
+    mediaSource: { type: "sample", sampleId: mediaPreviewSampleId(filter) },
+    animate: vfx,
+    cursorEnabled: false,
+    glsl: fragmentShader,
+  };
+}
+
+async function paintPixelatePreview(recipe: Recipe, target: HTMLCanvasElement) {
+  const dataUrl = await resolveMediaImageForExport(recipe);
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => resolve(element);
+    element.onerror = () => reject(new Error("Could not load media preview"));
+    element.src = dataUrl;
+  });
+  const width = 640;
+  const height = 400;
+  const block = Math.max(4, Math.round(4 + recipe.intensity * 28 + recipe.warp * 16));
+  const smallWidth = Math.max(2, Math.ceil(width / block));
+  const smallHeight = Math.max(2, Math.ceil(height / block));
+  const scratch = document.createElement("canvas");
+  scratch.width = smallWidth;
+  scratch.height = smallHeight;
+  const scratchCtx = scratch.getContext("2d");
+  const targetCtx = target.getContext("2d");
+  if (!scratchCtx || !targetCtx) return false;
+  const scale = Math.max(smallWidth / image.width, smallHeight / image.height);
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
+  scratchCtx.drawImage(image, (smallWidth - drawWidth) / 2, (smallHeight - drawHeight) / 2, drawWidth, drawHeight);
+  target.width = width;
+  target.height = height;
+  targetCtx.imageSmoothingEnabled = false;
+  targetCtx.drawImage(scratch, 0, 0, smallWidth, smallHeight, 0, 0, width, height);
+  return true;
 }
 
 // A clean, fixed-size renderer used by `npm run previews`.  It deliberately
@@ -671,6 +803,124 @@ export function StaticStylePreview({ style }: { style: number }) {
       : <NativeShaderCanvas recipe={recipe} frozen={false} onError={() => undefined} />}
   </main>;
 }
+
+function PixelateStaticPreview({ recipe }: { recipe: Recipe }) {
+  const [ready, setReady] = useState(false);
+  const imageRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const render = async () => {
+      const canvas = document.createElement("canvas");
+      const painted = await paintPixelatePreview(recipe, canvas);
+      if (!painted || cancelled) return;
+      const url = canvas.toDataURL("image/png");
+      const image = imageRef.current;
+      if (!image) return;
+      const markReady = () => {
+        if (!cancelled) setReady(true);
+      };
+      image.onload = markReady;
+      image.onerror = () => { if (!cancelled) setReady(true); };
+      image.src = url;
+      if (image.complete) markReady();
+    };
+    void render();
+    return () => { cancelled = true; };
+  }, [recipe]);
+
+  return (
+    <main id="media-preview" data-preview-ready={ready ? "" : undefined} style={{ width: 640, height: 400, overflow: "hidden", background: "#050609" }}>
+      <img ref={imageRef} alt="" width={640} height={400} style={{ display: "block", width: "100%", height: "100%", objectFit: "cover" }} />
+    </main>
+  );
+}
+
+// Fixed-size renderer for `npm run media-previews`. Reuses the same export path as
+// downloads so Paper and VFX filters both produce a trustworthy still frame.
+export function StaticMediaPreview({ filter }: { filter: MediaFilterId }) {
+  const recipe = useMemo(() => buildMediaPreviewRecipe(filter), [filter]);
+  if (filter === "vfx-pixelate") return <PixelateStaticPreview recipe={recipe} />;
+  const captureRef = useRef<HTMLCanvasElement>(null);
+  const live = isVfxMediaFilter(filter);
+
+  useEffect(() => {
+    let cancelled = false;
+    captureRef.current?.removeAttribute("data-preview-ready");
+
+    const paintTarget = (source: CanvasImageSource) => {
+      const target = captureRef.current;
+      if (!target || cancelled) return false;
+      target.width = 640;
+      target.height = 400;
+      const ctx = target.getContext("2d");
+      if (!ctx) return false;
+      ctx.drawImage(source, 0, 0, 640, 400);
+      target.setAttribute("data-preview-ready", "");
+      return true;
+    };
+
+    const settle = async (frames: number) => {
+      for (let attempt = 0; attempt < frames && !cancelled; attempt += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+    };
+
+    const capture = async () => {
+      try {
+        if (isPaperMediaFilter(filter)) {
+          await waitForMediaCanvas(180);
+          await settle(45);
+          const source = queryMediaCanvas();
+          if (source && source.width > 0 && paintTarget(source)) return;
+          throw new Error("Paper preview canvas was not ready");
+        }
+
+        const delay = 1800;
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        try {
+          const exported = await exportMediaPng(recipe, 640, 400);
+          if (paintTarget(exported)) return;
+        } catch {
+          // Fall back to the live VFX canvas if export timing is tight.
+        }
+        await waitForMediaCanvas(180);
+        await settle(90);
+        const source = queryMediaCanvas();
+        if (source && source.width > 0 && paintTarget(source)) return;
+        throw new Error("VFX preview canvas was not ready");
+      } catch (error) {
+        console.error(`Media preview export failed for ${filter}`, error);
+      }
+    };
+    void capture();
+    return () => { cancelled = true; };
+  }, [recipe, filter]);
+
+  return (
+    <main id="media-preview" style={{ width: 640, height: 400, overflow: "hidden", background: "#050609", position: "relative" }}>
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          overflow: "hidden",
+          opacity: live ? 1 : 0,
+          pointerEvents: "none",
+        }}
+      >
+        <MediaCanvas recipe={recipe} frozen={!live} />
+      </div>
+      <canvas
+        ref={captureRef}
+        className="media-preview-canvas"
+        style={{ position: "relative", zIndex: 1, display: "block", width: "100%", height: "100%", background: "#050609" }}
+      />
+    </main>
+  );
+}
+
+export { resolveMediaPreviewFilter };
 
 export function SavedRecipePreview({ recipe }: { recipe: Recipe }) {
   // Saved cards use the exact persisted recipe rather than approximating it

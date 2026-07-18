@@ -1,0 +1,4 @@
+{
+  "/media-preview/[filter]/page": "app/media-preview/[filter]/page.js",
+  "/page": "app/page.js"
+}

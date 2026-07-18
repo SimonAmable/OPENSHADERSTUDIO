@@ -32,9 +32,10 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-style-previews/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-style-previews/types/**/*.ts"
+    ".next-media-previews/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

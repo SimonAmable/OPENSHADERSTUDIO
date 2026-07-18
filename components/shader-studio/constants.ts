@@ -1,9 +1,9 @@
 import type { MockupBorderStyle, MockupChrome, OutputAspect } from "./types";
 
 export const videoFormats = [
+  { value: "video/mp4;codecs=avc1.42E01E", label: "MP4 (H.264)" },
   { value: "video/webm;codecs=vp9", label: "WebM (VP9)" },
   { value: "video/webm;codecs=vp8", label: "WebM (VP8)" },
-  { value: "video/mp4;codecs=avc1.42E01E", label: "MP4 (H.264)" },
 ] as const;
 
 export const outputFrames: { aspect: OutputAspect; label: string; detail: string }[] = [

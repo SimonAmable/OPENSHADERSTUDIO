@@ -20,7 +20,8 @@ export type TypeBlock = {
   color: string;
   plate: "black" | "white";
 };
-export type VisualSection = "style" | "palette" | "surface" | "motion" | "cursor";
+export type VisualKind = "shader" | "media";
+export type VisualSection = "source" | "style" | "palette" | "surface" | "motion" | "cursor";
 export type CursorEffect = "push" | "repel" | "swirl" | "ripple" | "spotlight";
 export type ExportTab = "image" | "video" | "variations" | "mockup" | "prompt" | "react" | "glsl";
 export type MockupExportMode = "image" | "video";
@@ -41,7 +42,69 @@ export type VideoExportSettings = { aspect: "16:9" | "1:1" | "9:16"; height: 480
 export type MockupSettings = { media: string | null; mediaType: "image" | "video" | null; chrome: MockupChrome; borderStyle: MockupBorderStyle; radius: number; shadow: number; scale: number; x: number; y: number; cameraX: number; cameraY: number; tiltX: number; tiltY: number; rotate: number; flipX?: boolean; flipY?: boolean; visible: boolean };
 export type CameraGeometry = { viewportWidth: number; viewportHeight: number; stageWidth: number; stageHeight: number; padWidth: number; padHeight: number };
 export type CameraFrame = { renderScale: number; panLimitX: number; panLimitY: number; cropWidth: number; cropHeight: number; cropCenterX: number; cropCenterY: number; previewScale: number };
-export type Recipe = { id: string; name: string; style: number; palette: string[]; intensity: number; zoom: number; warp: number; contrast: number; speed: number; drift: number; blur: number; animate: boolean; reverse: boolean; grain: number; rotate: number; offsetX: number; offsetY: number; seed: number; smoothBlend: boolean; cursorEnabled: boolean; cursorEffect: CursorEffect; cursorStrength: number; cursorRadius: number; glsl: string };
+
+export type MediaEngine = "paper" | "vfx";
+export type MediaFilterId =
+  | "paper-water"
+  | "paper-fluted-glass"
+  | "paper-texture"
+  | "paper-image-dithering"
+  | "paper-halftone-dots"
+  | "paper-halftone-cmyk"
+  | "paper-liquid-metal"
+  | "paper-heatmap"
+  | "paper-gem-smoke"
+  | "vfx-glitch"
+  | "vfx-chromatic"
+  | "vfx-rgb-shift"
+  | "vfx-scanline"
+  | "vfx-pixelate"
+  | "vfx-bloom"
+  | "vfx-fluid";
+
+export type MediaSource =
+  | { type: "sample"; sampleId: string }
+  | { type: "upload"; dataUrl: string; mime: "image" | "video" };
+
+export type SampleAsset = {
+  id: string;
+  path: string;
+  type: "image" | "video";
+  tags: string[];
+  for: Array<"media" | "ascii">;
+  label: string;
+  thumb?: string;
+};
+
+export type Recipe = {
+  id: string;
+  name: string;
+  kind: VisualKind;
+  style: number;
+  mediaFilter: MediaFilterId;
+  mediaSource: MediaSource | null;
+  palette: string[];
+  intensity: number;
+  zoom: number;
+  warp: number;
+  contrast: number;
+  speed: number;
+  drift: number;
+  blur: number;
+  animate: boolean;
+  reverse: boolean;
+  grain: number;
+  rotate: number;
+  offsetX: number;
+  offsetY: number;
+  seed: number;
+  smoothBlend: boolean;
+  cursorEnabled: boolean;
+  cursorEffect: CursorEffect;
+  cursorStrength: number;
+  cursorRadius: number;
+  glsl: string;
+};
 export type SavedPalette = { id: string; name: string; colors: string[] };
 export type ThemeOption = { key: string; name: string; colors: string[]; deletable?: boolean };
 export type CameraPadRef = RefObject<HTMLDivElement | null>;

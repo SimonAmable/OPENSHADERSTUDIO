@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "id": "aurora",
+      "path": "/samples/aurora.png",
+      "type": "image",
+      "tags": ["abstract", "texture"],
+      "for": ["media", "ascii"],
+      "label": "Aurora"
+    },
+    {
+      "id": "caustics",
+      "path": "/samples/caustics.png",
+      "type": "image",
+      "tags": ["texture", "abstract"],
+      "for": ["media", "ascii"],
+      "label": "Caustics"
+    },
+    {
+      "id": "portrait-a",
+      "path": "/samples/556397c6096c0af0913bbc28bdb3de60.jpg",
+      "type": "image",
+      "tags": ["portrait"],
+      "for": ["media", "ascii"],
+      "label": "Portrait A"
+    },
+    {
+      "id": "portrait-b",
+      "path": "/samples/5e849d31302c296faeaee27449900509.jpg",
+      "type": "image",
+      "tags": ["portrait"],
+      "for": ["media", "ascii"],
+      "label": "Portrait B"
+    },
+    {
+      "id": "generated-1",
+      "path": "/samples/Generated%20image%201.png",
+      "type": "image",
+      "tags": ["abstract", "product"],
+      "for": ["media", "ascii"],
+      "label": "Generated 1"
+    },
+    {
+      "id": "generated-2",
+      "path": "/samples/generated-image-1783984312949.png",
+      "type": "image",
+      "tags": ["abstract", "texture"],
+      "for": ["media", "ascii"],
+      "label": "Generated 2"
+    },
+    {
+      "id": "thermal-loop",
+      "path": "/shaders/thermal-loop.webm",
+      "type": "video",
+      "tags": ["loop", "abstract"],
+      "for": ["media", "ascii"],
+      "label": "Thermal loop"
+    }
+  ]
+}

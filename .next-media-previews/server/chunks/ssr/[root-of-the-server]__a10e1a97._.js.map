@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/simon/Documents/gpt-sites-test/components/ui/sonner.tsx"],"sourcesContent":["\"use client\";\n\nimport { Toaster as Sonner, type ToasterProps } from \"sonner\";\n\nexport function Toaster({ ...props }: ToasterProps) {\n  return (\n    <Sonner\n      theme=\"dark\"\n      className=\"toaster group\"\n      position=\"top-center\"\n      richColors\n      closeButton\n      {...props}\n    />\n  );\n}\n"],"names":[],"mappings":";;;;;AAEA;AAFA;;;AAIO,SAAS,QAAQ,EAAE,GAAG,OAAqB;IAChD,qBACE,8OAAC,mJAAM;QACL,OAAM;QACN,WAAU;QACV,UAAS;QACT,UAAU;QACV,WAAW;QACV,GAAG,KAAK;;;;;;AAGf","debugId":null}}]
+}
