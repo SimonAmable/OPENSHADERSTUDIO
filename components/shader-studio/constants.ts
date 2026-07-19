@@ -1,4 +1,4 @@
-import type { MockupBorderStyle, MockupChrome, OutputAspect } from "./types";
+import type { MockupBorderStyle, MockupChrome, MockupChromeTheme, OutputAspect } from "./types";
 
 export const videoFormats = [
   { value: "video/mp4;codecs=avc1.42E01E", label: "MP4 (H.264)" },
@@ -15,3 +15,4 @@ export const outputFrames: { aspect: OutputAspect; label: string; detail: string
 
 export const mockupBorderStyles: MockupBorderStyle[] = ["glass", "border", "inset", "none"];
 export const mockupChromeStyles: MockupChrome[] = ["browser", "none"];
+export const mockupChromeThemes: MockupChromeTheme[] = ["light", "dark", "glass"];

@@ -33,7 +33,15 @@ function MediaPaperExportCanvas({ recipe, width, height, image }: { recipe: Reci
   const props = mediaPaperProps(recipe, true, image);
   return (
     <div className="paper-shader-host" data-paper-export-host="" style={{ width, height, touchAction: "none" }}>
-      <Component className="paper-shader-canvas" width={width} height={height} {...props} style={{ width, height }} />
+      <Component
+        className="paper-shader-canvas"
+        width={width}
+        height={height}
+        {...props}
+        minPixelRatio={1}
+        maxPixelCount={width * height}
+        style={{ width, height }}
+      />
     </div>
   );
 }

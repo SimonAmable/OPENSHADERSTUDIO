@@ -8,7 +8,9 @@ import { MediaCanvas, queryMediaCanvas, waitForMediaCanvas } from "./media-canva
 import { AsciiCanvas, queryAsciiCanvas, waitForAsciiCanvas } from "./ascii-canvas";
 import { asciiStyleNames } from "./ascii-catalog";
 import { exportMediaPng, resolveMediaImageForExport } from "./media-export";
-import { isPaperMediaFilter, isVfxMediaFilter, mediaFilterNames, mediaPreviewSampleId } from "./media-catalog";
+import { buildMediaPreviewRecipe, buildAsciiPreviewRecipe, type InputMode } from "./preview-recipes";
+import { exportAsciiPng } from "./ascii-export";
+import { isPaperMediaFilter, isVfxMediaFilter } from "./media-catalog";
 import type { MediaFilterId, Recipe, SavedPalette, ThemeOption, MockupSettings, Tab } from "./types";
 import { recordCanvasAnimation as encodeCanvasAnimation, exportExtensionForMime, exportVideoBitrate } from "./video-encoder";
 
@@ -320,7 +322,7 @@ export const tabs = [
   { id: "mockup" as const, label: "Mockup", icon: ImageDown },
 ];
 
-export const mockupPresets: { id: string; label: string; settings: Omit<MockupSettings, "media" | "mediaType" | "chrome" | "borderStyle" | "borderWidth" | "fillOpacity" | "backdropBlur" | "radius" | "shadow" | "visible"> }[] = [
+export const mockupPresets: { id: string; label: string; settings: Omit<MockupSettings, "media" | "mediaType" | "chrome" | "chromeTheme" | "chromeScale" | "borderStyle" | "borderWidth" | "fillOpacity" | "backdropBlur" | "radius" | "shadow" | "visible"> }[] = [
   { id: "custom", label: "Custom layout", settings: { scale: .45, x: 0, y: 0, cameraX: 0, cameraY: 0, tiltX: 0, tiltY: 0, rotate: 0 } },
   { id: "float", label: "Soft focus", settings: { scale: 1.12, x: 0, y: 0, cameraX: 0, cameraY: -8, tiltX: 4, tiltY: -9, rotate: -3 } },
   { id: "left", label: "Focus left", settings: { scale: 1.75, x: 0, y: 0, cameraX: -32, cameraY: 4, tiltX: 0, tiltY: 8, rotate: 1 } },
@@ -583,6 +585,11 @@ function PaperExportCanvas({ recipe, width, height }: { recipe: Recipe; width: n
         width={width}
         height={height}
         {...props}
+        // Exports must render at their requested dimensions. The Paper shader
+        // default targets a high-DPI preview and caps its pixel budget, which
+        // can downscale 1440p exports before we read the canvas back.
+        minPixelRatio={1}
+        maxPixelCount={width * height}
         style={{ width, height }}
       />
     </div>
@@ -827,26 +834,23 @@ export function MediaThumbnail({ filter }: { filter: MediaFilterId }) {
 }
 
 export function AsciiThumbnail({ style }: { style: import("./types").AsciiStyleId }) {
+  const [useFallback, setUseFallback] = useState(false);
+  if (useFallback) {
+    return (
+      <span className="shader-thumbnail ascii-thumbnail" aria-hidden="true">
+        {asciiStyleNames[style]?.slice(0, 2) ?? "AS"}
+      </span>
+    );
+  }
   return (
-    <span className="shader-thumbnail ascii-thumbnail" aria-hidden="true">
-      {asciiStyleNames[style]?.slice(0, 2) ?? "AS"}
-    </span>
+    <img
+      className="shader-thumbnail ascii-thumbnail"
+      src={`/ascii-previews/${style}.png`}
+      alt=""
+      aria-hidden="true"
+      onError={() => setUseFallback(true)}
+    />
   );
-}
-
-function buildMediaPreviewRecipe(filter: MediaFilterId): Recipe {
-  const vfx = isVfxMediaFilter(filter);
-  return {
-    ...defaultRecipe,
-    id: `media-preview-${filter}`,
-    name: mediaFilterNames[filter] ?? "Media",
-    kind: "media",
-    mediaFilter: filter,
-    mediaSource: { type: "sample", sampleId: mediaPreviewSampleId(filter) },
-    animate: vfx,
-    cursorEnabled: false,
-    glsl: fragmentShader,
-  };
 }
 
 async function paintPixelatePreview(recipe: Recipe, target: HTMLCanvasElement) {
@@ -934,8 +938,16 @@ function PixelateStaticPreview({ recipe }: { recipe: Recipe }) {
 
 // Fixed-size renderer for `npm run media-previews`. Reuses the same export path as
 // downloads so Paper and VFX filters both produce a trustworthy still frame.
-export function StaticMediaPreview({ filter }: { filter: MediaFilterId }) {
-  const recipe = useMemo(() => buildMediaPreviewRecipe(filter), [filter]);
+export function StaticMediaPreview({
+  filter,
+  mode = "preset",
+  seed,
+}: {
+  filter: MediaFilterId;
+  mode?: InputMode;
+  seed?: number;
+}) {
+  const recipe = useMemo(() => buildMediaPreviewRecipe(filter, mode, seed), [filter, mode, seed]);
   const captureRef = useRef<HTMLCanvasElement>(null);
   const live = isVfxMediaFilter(filter);
   const isPixelate = filter === "vfx-pixelate";
@@ -1014,6 +1026,62 @@ export function StaticMediaPreview({ filter }: { filter: MediaFilterId }) {
         ref={captureRef}
         className="media-preview-canvas"
         style={{ position: "relative", zIndex: 1, display: "block", width: "100%", height: "100%", background: "#050609" }}
+      />
+    </main>
+  );
+}
+
+export function StaticAsciiPreview({
+  style,
+  mode = "preset",
+  seed,
+}: {
+  style: import("./types").AsciiStyleId;
+  mode?: InputMode;
+  seed?: number;
+}) {
+  const recipe = useMemo(() => buildAsciiPreviewRecipe(style, mode, seed), [style, mode, seed]);
+  const captureRef = useRef<HTMLCanvasElement>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReady(false);
+    captureRef.current?.removeAttribute("data-preview-ready");
+
+    const capture = async () => {
+      try {
+        const exported = await exportAsciiPng(recipe, 640, 400);
+        if (cancelled) return;
+        const target = captureRef.current;
+        if (!target) return;
+        const ctx = target.getContext("2d");
+        if (!ctx) return;
+        target.width = 640;
+        target.height = 400;
+        ctx.drawImage(exported, 0, 0);
+        target.setAttribute("data-preview-ready", "");
+        setReady(true);
+      } catch (error) {
+        console.error(`ASCII preview export failed for ${style}`, error);
+        if (!cancelled) setReady(true);
+      }
+    };
+
+    void capture();
+    return () => { cancelled = true; };
+  }, [recipe, style]);
+
+  return (
+    <main
+      id="ascii-preview"
+      data-preview-ready={ready ? "" : undefined}
+      style={{ width: 640, height: 400, overflow: "hidden", background: "#050609" }}
+    >
+      <canvas
+        ref={captureRef}
+        className="ascii-preview-canvas"
+        style={{ display: "block", width: "100%", height: "100%", background: "#050609" }}
       />
     </main>
   );

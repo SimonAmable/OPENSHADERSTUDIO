@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "previews": "node scripts/generate-shader-previews.mjs",
-    "media-previews": "node scripts/generate-media-previews.mjs"
+    "media-previews": "node scripts/generate-media-previews.mjs",
+    "ascii-previews": "node scripts/generate-ascii-previews.mjs"
   },
   "dependencies": {
     "@hugeicons/core-free-icons": "^4.2.2",
