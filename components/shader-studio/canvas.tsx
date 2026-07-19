@@ -320,7 +320,7 @@ export const tabs = [
   { id: "mockup" as const, label: "Mockup", icon: ImageDown },
 ];
 
-export const mockupPresets: { id: string; label: string; settings: Omit<MockupSettings, "media" | "mediaType" | "chrome" | "borderStyle" | "radius" | "shadow" | "visible"> }[] = [
+export const mockupPresets: { id: string; label: string; settings: Omit<MockupSettings, "media" | "mediaType" | "chrome" | "borderStyle" | "borderWidth" | "fillOpacity" | "backdropBlur" | "radius" | "shadow" | "visible"> }[] = [
   { id: "custom", label: "Custom layout", settings: { scale: .45, x: 0, y: 0, cameraX: 0, cameraY: 0, tiltX: 0, tiltY: 0, rotate: 0 } },
   { id: "float", label: "Soft focus", settings: { scale: 1.12, x: 0, y: 0, cameraX: 0, cameraY: -8, tiltX: 4, tiltY: -9, rotate: -3 } },
   { id: "left", label: "Focus left", settings: { scale: 1.75, x: 0, y: 0, cameraX: -32, cameraY: 4, tiltX: 0, tiltY: 8, rotate: 1 } },
@@ -470,6 +470,31 @@ export function queryVisualCanvas(recipe: Recipe) {
   return queryShaderCanvas(recipe.style);
 }
 
+export function queryStageVisualCanvas(recipe: Recipe) {
+  const root = ".canvas-area .canvas-frame";
+  if (recipe.kind === "ascii") {
+    return document.querySelector<HTMLCanvasElement>(`${root} canvas`);
+  }
+  if (recipe.kind === "media") {
+    return document.querySelector<HTMLCanvasElement>(`${root} [data-media-paper] canvas`)
+      ?? document.querySelector<HTMLCanvasElement>(`${root} [data-media-vfx-canvas]`);
+  }
+  if (isPaperStyle(recipe.style)) {
+    return document.querySelector<HTMLCanvasElement>(`${root} .paper-shader-host canvas`);
+  }
+  return document.querySelector<HTMLCanvasElement>(`${root} .shader-canvas`);
+}
+
+export function isStagePreviewBroken(recipe: Recipe) {
+  const canvas = queryStageVisualCanvas(recipe);
+  if (!canvas) return true;
+  if (canvas.clientWidth < 2 || canvas.clientHeight < 2) return true;
+  if (canvas.width < 2 || canvas.height < 2) return true;
+  const gl = canvas.getContext("webgl") ?? canvas.getContext("webgl2");
+  if (gl?.isContextLost()) return true;
+  return false;
+}
+
 export async function waitForVisualCanvas(recipe: Recipe, attempts = 90) {
   if (recipe.kind === "ascii") return waitForAsciiCanvas(attempts);
   if (recipe.kind === "media") return waitForMediaCanvas(attempts);
@@ -614,18 +639,47 @@ export async function waitForShaderCanvas(style: number, attempts = 90) {
   throw new Error("Live shader preview is unavailable");
 }
 
-function PaperShaderCanvas({ recipe, frozen, onReady }: { recipe: Recipe; frozen: boolean; onReady?: (canvas: HTMLCanvasElement) => void }) {
+function PaperShaderCanvas({ recipe, frozen, onReady, onError }: { recipe: Recipe; frozen: boolean; onReady?: (canvas: HTMLCanvasElement) => void; onError?: (message: string | null) => void }) {
   const ref = useRef<(HTMLElement & { canvasElement?: HTMLCanvasElement }) | null>(null);
   const pointer = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
   const [cursorOffset, setCursorOffset] = useState<PaperCursorOffset>({ x: 0, y: 0, rotation: 0 });
   const Component = paperShaders[recipe.style];
   const cursorActive = recipe.cursorEnabled && !frozen;
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   useEffect(() => {
     if (!onReady || !ref.current?.canvasElement) return;
     const frame = requestAnimationFrame(() => { if (ref.current?.canvasElement) onReady(ref.current.canvasElement); });
     return () => cancelAnimationFrame(frame);
   }, [onReady, recipe.style]);
+
+  useEffect(() => {
+    if (!onError) return;
+    let frame = 0;
+    let canvas: HTMLCanvasElement | null = null;
+    const onLost = (event: Event) => {
+      event.preventDefault();
+      onErrorRef.current?.("Graphics context was lost — reset the preview.");
+    };
+    const onRestored = () => onErrorRef.current?.(null);
+    const attach = () => {
+      canvas = ref.current?.canvasElement ?? null;
+      if (!canvas) {
+        frame = requestAnimationFrame(attach);
+        return;
+      }
+      canvas.addEventListener("webglcontextlost", onLost);
+      canvas.addEventListener("webglcontextrestored", onRestored);
+    };
+    attach();
+    return () => {
+      cancelAnimationFrame(frame);
+      canvas?.removeEventListener("webglcontextlost", onLost);
+      canvas?.removeEventListener("webglcontextrestored", onRestored);
+    };
+  }, [onError, recipe.style]);
 
   useEffect(() => {
     if (frozen) {
@@ -687,6 +741,22 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
   }, [frozen]);
 
   useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const onLost = (event: Event) => {
+      event.preventDefault();
+      onErrorRef.current("Graphics context was lost — reset the preview.");
+    };
+    const onRestored = () => onErrorRef.current(null);
+    canvas.addEventListener("webglcontextlost", onLost);
+    canvas.addEventListener("webglcontextrestored", onRestored);
+    return () => {
+      canvas.removeEventListener("webglcontextlost", onLost);
+      canvas.removeEventListener("webglcontextrestored", onRestored);
+    };
+  }, []);
+
+  useEffect(() => {
     const canvas = ref.current; if (!canvas) return;
     const gl = canvas.getContext("webgl", { preserveDrawingBuffer: true });
     if (!gl) { onErrorRef.current("WebGL is unavailable in this browser."); return; }
@@ -744,7 +814,7 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
 export function ShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; frozen: boolean; onError: (message: string | null) => void }) {
   if (recipe.kind === "ascii") return <AsciiCanvas recipe={recipe} frozen={frozen} />;
   if (recipe.kind === "media") return <MediaCanvas recipe={recipe} frozen={frozen} />;
-  if (isPaperStyle(recipe.style)) return <PaperShaderCanvas recipe={recipe} frozen={frozen} />;
+  if (isPaperStyle(recipe.style)) return <PaperShaderCanvas recipe={recipe} frozen={frozen} onError={onError} />;
   return <NativeShaderCanvas recipe={recipe} frozen={frozen} onError={onError} />;
 }
 

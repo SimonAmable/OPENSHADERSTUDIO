@@ -10,7 +10,7 @@ import { exportPreviewAspect, shaderOutputSize } from "./export-utils";
 import { VARIATION_MODE_META, VariationMode, generateVariationRecipes } from "./randomize";
 import { canvasToPngBlob, renderNativeRecipeToCanvas, scaleCanvasToPngBlob, slugifyRecipeName } from "./render-png";
 
-const ALL_MODES: VariationMode[] = ["vary", "inspire", "recolour", "remix", "restyle"];
+const ALL_MODES: VariationMode[] = ["recolour", "remix", "restyle"];
 const COUNT_OPTIONS = [4, 6, 8, 12] as const;
 const PREVIEW_HEIGHT = 240;
 

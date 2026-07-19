@@ -1,12 +1,12 @@
 "use client";
 
 import { ChangeEvent, ComponentType, CSSProperties, DragEvent, MouseEvent, PointerEvent, ReactNode, RefObject, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, Reorder, useDragControls } from "framer-motion";
 import { ColorPanels, Dithering, DotGrid, DotOrbit, GodRays, GrainGradient, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, PulsingBorder, SimplexNoise, SmokeRing, Spiral, StaticMeshGradient, StaticRadialGradient, Swirl, Voronoi, Warp, Waves } from "@paper-design/shaders-react";
 import {
   BookOpen, Check, ChevronDown, CircleHelp, Code2, Copy, CopyPlus, Dices, Download, Droplets, Eye, EyeOff,
   Gauge, ImageDown, Info, Layers3, MousePointer2, Palette, Pause, Play, Redo2, RefreshCcw,
-  Minus, Pipette, Plus, Save, Scissors, Search, Settings2, Share2, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Video, WandSparkles, X,
+  GripVertical, Minus, Pipette, Plus, Save, Scissors, Search, Settings2, Share2, Sparkles, SplitSquareHorizontal, Trash2, Undo2, Video, WandSparkles, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,7 @@ import { exportAsciiPng, renderAsciiFrameToCanvas } from "./shader-studio/ascii-
 import { getAsciiSurfaceSummary } from "./shader-studio/ascii-surface-controls";
 import { normalizeRecipe } from "./shader-studio/normalize-recipe";
 import { waitForMediaCanvas } from "./shader-studio/media-canvas";
+import { extractMagicColors, makeMagicPalettes, makeMagicVisuals, type MagicPalette, type MagicVisual } from "./shader-studio/magic-background";
 export { MediaThumbnail, StaticMediaPreview, StaticStylePreview } from "./shader-studio/canvas";
 export { resolveMediaPreviewFilter } from "./shader-studio/media-catalog";
 
@@ -47,9 +48,26 @@ const SHARED_SHADER_PARAM = "shader";
 const SHARE_VERSION = 2;
 const ABOUT_SEEN_KEY = "shader-studio-about-seen";
 const isApplePlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
+
+function mockupDropShadow(shadow: number) {
+  if (shadow <= 0) return "none";
+  return `0 ${18 + shadow / 3}px ${35 + shadow}px rgba(0,0,0,${.2 + shadow / 160})`;
+}
+
+function applyMockupCanvasShadow(context: CanvasRenderingContext2D, shadow: number) {
+  if (shadow <= 0) {
+    context.shadowColor = "transparent";
+    context.shadowBlur = 0;
+    context.shadowOffsetY = 0;
+    return;
+  }
+  context.shadowColor = `rgba(0,0,0,${.2 + shadow / 160})`;
+  context.shadowBlur = 16 + shadow;
+  context.shadowOffsetY = 8 + shadow / 3;
+}
 const modKey = isApplePlatform ? "⌘" : "Ctrl";
 
-import { SAVED_PALETTES_KEY, SAVED_RECIPES_KEY, RESUME_RECIPE_KEY, AsciiThumbnail, MediaThumbnail, SavedRecipePreview, ShaderCanvas, ShaderThumbnail, StaticStylePreview, appPresets, buildThemeOptions, capitalizeWords, companyThemeKey, companyThemes, createPaperExportSurface, defaultRecipe, drawPaperShaderToCanvas, exportExtensionForMime, exportVideoBitrate, formatPaperPropsForExport, fragmentShader, hexToRgb, isPaperStyle, mockupPresets, palettes, paperProps, paperShaderNames, presetGroups, presetSettings, queryShaderCanvas, queryVisualCanvas, recordCanvasAnimation, savedThemeKey, styleNames, tabs, waitForShaderCanvas, waitForVisualCanvas } from "./shader-studio/canvas";
+import { SAVED_PALETTES_KEY, SAVED_RECIPES_KEY, RESUME_RECIPE_KEY, AsciiThumbnail, MediaThumbnail, SavedRecipePreview, ShaderCanvas, ShaderThumbnail, StaticStylePreview, appPresets, buildThemeOptions, capitalizeWords, companyThemeKey, companyThemes, createPaperExportSurface, defaultRecipe, drawPaperShaderToCanvas, exportExtensionForMime, exportVideoBitrate, formatPaperPropsForExport, fragmentShader, hexToRgb, isPaperStyle, isStagePreviewBroken, mockupPresets, palettes, paperProps, paperShaderNames, presetGroups, presetSettings, queryShaderCanvas, queryVisualCanvas, recordCanvasAnimation, savedThemeKey, styleNames, tabs, waitForShaderCanvas, waitForVisualCanvas } from "./shader-studio/canvas";
 
 type SharedRecipe = Omit<Recipe, "id" | "glsl"> & { v: number };
 
@@ -374,6 +392,112 @@ function ThemePaletteSelect({ value, options, onChange, onDelete }: { value: str
   );
 }
 
+type PaletteStopItem = { id: string; color: string };
+
+function createPaletteStopId() {
+  return `palette-stop-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function PaletteStopRow({
+  item,
+  index,
+  total,
+  canRemove,
+  onColorChange,
+  onRemove,
+}: {
+  item: PaletteStopItem;
+  index: number;
+  total: number;
+  canRemove: boolean;
+  onColorChange: (color: string) => void;
+  onRemove: () => void;
+}) {
+  const dragControls = useDragControls();
+
+  return (
+    <Reorder.Item
+      value={item}
+      className="color-stop"
+      dragListener={false}
+      dragControls={dragControls}
+      whileDrag={{
+        scale: 1.015,
+        boxShadow: "0 14px 34px rgba(0,0,0,0.42)",
+        borderColor: "#4f6fd0",
+        zIndex: 12,
+      }}
+      transition={{ layout: { type: "spring", stiffness: 520, damping: 38 } }}
+    >
+      <button
+        type="button"
+        className="stop-drag-handle"
+        aria-label={`Drag to reorder ${index === 0 ? "base" : `stop ${index}`}`}
+        onPointerDown={(event) => dragControls.start(event)}
+      >
+        <GripVertical aria-hidden="true" />
+      </button>
+      <ShadcnColorPicker color={item.color} onChange={onColorChange} />
+      <b>{index === 0 ? "BASE" : `STOP ${index}`}</b>
+      <span>{index === total - 1 ? "Highlight" : "Gradient"}</span>
+      <button
+        className="remove-colour"
+        type="button"
+        disabled={!canRemove}
+        aria-label={`Remove stop ${index}`}
+        onClick={onRemove}
+      >
+        <Minus />
+      </button>
+    </Reorder.Item>
+  );
+}
+
+function PaletteStopsList({ palette, onChange }: { palette: string[]; onChange: (palette: string[]) => void }) {
+  const stopIdsRef = useRef<string[]>([]);
+
+  if (stopIdsRef.current.length < palette.length) {
+    while (stopIdsRef.current.length < palette.length) {
+      stopIdsRef.current.push(createPaletteStopId());
+    }
+  } else if (stopIdsRef.current.length > palette.length) {
+    stopIdsRef.current.length = palette.length;
+  }
+
+  const items = useMemo(
+    () => palette.map((color, index) => ({ id: stopIdsRef.current[index], color })),
+    [palette],
+  );
+
+  const handleReorder = (nextItems: PaletteStopItem[]) => {
+    stopIdsRef.current = nextItems.map((stop) => stop.id);
+    onChange(nextItems.map((stop) => stop.color));
+  };
+
+  return (
+    <Reorder.Group axis="y" className="stops" values={items} onReorder={handleReorder}>
+      {items.map((item, index) => (
+        <PaletteStopRow
+          key={item.id}
+          item={item}
+          index={index}
+          total={items.length}
+          canRemove={palette.length > 2}
+          onColorChange={(nextColor) => {
+            const nextPalette = [...palette];
+            nextPalette[index] = nextColor;
+            onChange(nextPalette);
+          }}
+          onRemove={() => {
+            stopIdsRef.current.splice(index, 1);
+            onChange(palette.filter((_, itemIndex) => itemIndex !== index));
+          }}
+        />
+      ))}
+    </Reorder.Group>
+  );
+}
+
 function PalettePanel({ recipe, embedded = false, selectedTheme, setSelectedTheme, onChange, onApplyTheme, onRandomize, savedPalettes, paletteName, setPaletteName, onSavePalette, onDeletePalette }: { recipe: Recipe; embedded?: boolean; selectedTheme: string; setSelectedTheme: (key: string) => void; onChange: (update: Partial<Recipe>) => void; onApplyTheme: (key: string) => void; onRandomize: () => void; savedPalettes: SavedPalette[]; paletteName: string; setPaletteName: (name: string) => void; onSavePalette: () => void; onDeletePalette: (id: string) => void }) {
   const applyPalette = (palette: string[]) => onChange({ palette: [...palette] });
   const themeOptions = useMemo(() => buildThemeOptions(savedPalettes), [savedPalettes]);
@@ -385,31 +509,7 @@ function PalettePanel({ recipe, embedded = false, selectedTheme, setSelectedThem
         <div>{!embedded && <><h2>Colours</h2><p className="helper">Build a gradient with up to eight colour stops.</p></>}</div>
         <span>{recipe.palette.length}/8</span>
       </div>
-      <div className="stops">
-        {recipe.palette.map((color, index) => (
-          <div className="color-stop" key={`palette-stop-${index}`}>
-            <ShadcnColorPicker
-              color={color}
-              onChange={(nextColor) => {
-                const palette = [...recipe.palette];
-                palette[index] = nextColor;
-                onChange({ palette });
-              }}
-            />
-            <b>{index === 0 ? "BASE" : `STOP ${index}`}</b>
-            <span>{index === recipe.palette.length - 1 ? "Highlight" : "Gradient"}</span>
-            <button
-              className="remove-colour"
-              type="button"
-              disabled={recipe.palette.length <= 2}
-              aria-label={`Remove stop ${index}`}
-              onClick={() => onChange({ palette: recipe.palette.filter((_, itemIndex) => itemIndex !== index) })}
-            >
-              <Minus />
-            </button>
-          </div>
-        ))}
-      </div>
+      <PaletteStopsList palette={recipe.palette} onChange={(palette) => onChange({ palette })} />
       <button
         className="add-colour"
         disabled={recipe.palette.length >= 8}
@@ -826,6 +926,113 @@ function VisualsPanel({
 
 
 import { CameraPadScene, CameraPresetPreview, RightCameraInspector } from "./shader-studio/camera-inspector";
+
+const magicVisualGroups: { kind: MagicVisual["kind"]; label: string }[] = [
+  { kind: "shader", label: "Shaders" },
+  { kind: "media", label: "Media filters" },
+  { kind: "ascii", label: "ASCII" },
+];
+
+function MagicPaletteSelect({ palettes, selectedId, onChange }: { palettes: MagicPalette[]; selectedId: string; onChange: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = palettes.find((palette) => palette.id === selectedId) ?? palettes[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: globalThis.PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  if (!selected) return null;
+
+  return (
+    <div className={`magic-palette-select${open ? " open" : ""}`} ref={rootRef}>
+      <button type="button" className="magic-palette-trigger" aria-expanded={open} aria-haspopup="listbox" onClick={() => setOpen((current) => !current)}>
+        <PalettePreview colors={selected.colors} />
+        <span className="magic-palette-trigger-copy">
+          <b>{selected.name}</b>
+          <small>{selected.description}</small>
+        </span>
+        <ChevronDown />
+      </button>
+      {open && (
+        <div className="magic-palette-menu" role="listbox" aria-label="Colour directions">
+          {palettes.map((palette) => (
+            <button
+              key={palette.id}
+              type="button"
+              role="option"
+              aria-selected={palette.id === selected.id}
+              className={palette.id === selected.id ? "selected" : ""}
+              onClick={() => {
+                onChange(palette.id);
+                setOpen(false);
+              }}
+            >
+              <PalettePreview colors={palette.colors} />
+              <span>
+                <b>{palette.name}</b>
+                <small>{palette.description}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MagicBackgroundPopover({ palettes, selectedId, visuals, onSelectPalette, onRegenerate, onApply, onClose }: { palettes: MagicPalette[]; selectedId: string; visuals: ReturnType<typeof makeMagicVisuals>; onSelectPalette: (id: string) => void; onRegenerate: () => void; onApply: (recipe: Recipe, label: string) => void; onClose: () => void }) {
+  if (!palettes.length) return null;
+  return (
+    <div className="magic-popover" role="dialog" aria-label="Magic backgrounds">
+      <div className="magic-popover-head">
+        <div>
+          <span className="magic-kicker"><Sparkles /> Magic backgrounds</span>
+          <p>Colours intelligently matched to your media.</p>
+        </div>
+        <button type="button" className="magic-close" onClick={onClose} aria-label="Close magic backgrounds"><X /></button>
+      </div>
+      <div className="magic-toolbar">
+        <MagicPaletteSelect palettes={palettes} selectedId={selectedId} onChange={onSelectPalette} />
+        <button type="button" className="magic-shuffle" onClick={onRegenerate}><RefreshCcw /> Shuffle</button>
+      </div>
+      <div className="magic-previews">
+        {magicVisualGroups.map((group) => {
+          const items = visuals.filter((visual) => visual.kind === group.kind);
+          if (!items.length) return null;
+          return (
+            <section key={group.kind} className="magic-preview-section" aria-label={group.label}>
+              <h3><i className={`magic-kind ${group.kind}`} />{group.label}</h3>
+              <div className="magic-preview-grid">
+                {items.map((visual) => (
+                  <button key={visual.id} type="button" className="magic-preview-card" onClick={() => onApply(visual.recipe, visual.label)}>
+                    <span className="magic-preview-art">
+                      <ShaderCanvas recipe={visual.recipe} frozen onError={() => undefined} />
+                    </span>
+                    <span className="magic-preview-label">{visual.label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function ShaderStudio() {
   const [recipe, setRecipe] = useState<Recipe>(defaultRecipe);
   const [tab, setTab] = useState<Tab>("visuals");
@@ -835,7 +1042,10 @@ export function ShaderStudio() {
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [frozen, setFrozen] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
+  const [previewHealthBroken, setPreviewHealthBroken] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const previewBroken = Boolean(error) || previewHealthBroken;
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [history, setHistory] = useState<Recipe[]>([]);
@@ -853,7 +1063,12 @@ export function ShaderStudio() {
   const [selectedTheme, setSelectedTheme] = useState<string>(companyThemeKey(companyThemes[0].name));
   const [savedPalettes, setSavedPalettes] = useState<SavedPalette[]>([]);
   const [paletteName, setPaletteName] = useState("");
-  const [mockup, setMockup] = useState<MockupSettings>({ media: null, mediaType: null, chrome: "none", borderStyle: "glass", radius: 20, shadow: 40, scale: .45, x: 0, y: 0, cameraX: 0, cameraY: 0, tiltX: 0, tiltY: 0, rotate: 0, flipX: false, flipY: false, visible: true });
+  const [magicOpen, setMagicOpen] = useState(false);
+  const [magicPalettes, setMagicPalettes] = useState<MagicPalette[]>([]);
+  const [selectedMagicPaletteId, setSelectedMagicPaletteId] = useState("");
+  const [magicRun, setMagicRun] = useState(0);
+  const magicActionRef = useRef<HTMLDivElement>(null);
+  const [mockup, setMockup] = useState<MockupSettings>({ media: null, mediaType: null, chrome: "none", borderStyle: "glass", borderWidth: 2, fillOpacity: 1, backdropBlur: 8, radius: 20, shadow: 40, scale: .45, x: 0, y: 0, cameraX: 0, cameraY: 0, tiltX: 0, tiltY: 0, rotate: 0, flipX: false, flipY: false, visible: true });
   const [cameraMode, setCameraMode] = useState<CameraMode>("zoom");
   const [cameraTool2D, setCameraTool2D] = useState<CameraTool2D>("camera");
   const [cameraTool3D, setCameraTool3D] = useState<CameraTool3D>("camera");
@@ -896,6 +1111,26 @@ export function ShaderStudio() {
   const saveRecipe = useStudioStore((state) => state.save);
   const hasRestoredRecipe = useRef(false);
   const hasRestoredPalettes = useRef(false);
+  const runtimePreviewToastShown = useRef(false);
+
+  const isRuntimePreviewError = (message: string) => message.includes("context") || message.includes("WebGL is unavailable");
+  const handlePreviewError = useCallback((message: string | null) => {
+    if (!message) {
+      setError(null);
+      runtimePreviewToastShown.current = false;
+      return;
+    }
+    if (isRuntimePreviewError(message)) {
+      setError(null);
+      setPreviewHealthBroken(true);
+      if (!runtimePreviewToastShown.current) {
+        runtimePreviewToastShown.current = true;
+        toast.error(message);
+      }
+      return;
+    }
+    setError(message);
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -1157,6 +1392,63 @@ export function ShaderStudio() {
     change(next);
     toast(next.kind === "ascii" ? "Varied → ASCII" : next.kind === "media" ? "Varied → Media" : "Varied → Shader");
   };
+  const resetPreview = useCallback(() => {
+    setError(null);
+    setPreviewHealthBroken(false);
+    runtimePreviewToastShown.current = false;
+    setFrozen(false);
+    setPreviewKey((key) => key + 1);
+    toast("Preview reset");
+  }, []);
+  const previewSuspended = frozen || exportOpen || mockupExportOpen || aboutOpen;
+  useEffect(() => {
+    setPreviewHealthBroken(false);
+  }, [previewKey]);
+  useEffect(() => {
+    if (previewSuspended) return;
+    let misses = 0;
+    const check = () => {
+      if (isStagePreviewBroken(recipe)) misses += 1;
+      else misses = 0;
+      setPreviewHealthBroken(misses >= 2);
+    };
+    const grace = window.setTimeout(check, 900);
+    const interval = window.setInterval(check, 1500);
+    return () => {
+      window.clearTimeout(grace);
+      window.clearInterval(interval);
+    };
+  }, [recipe, previewKey, previewSuspended]);
+  const selectedMagicPalette = magicPalettes.find((palette) => palette.id === selectedMagicPaletteId) ?? magicPalettes[0] ?? null;
+  const magicSource = useMemo<MediaSource | null>(() => mockup.media ? { type: "upload", dataUrl: mockup.media, mime: mockup.mediaType === "video" ? "video" : "image" } : recipe.mediaSource, [mockup.media, mockup.mediaType, recipe.mediaSource]);
+  const magicVisuals = useMemo(() => magicOpen && selectedMagicPalette ? makeMagicVisuals(recipe, selectedMagicPalette, magicSource, magicRun) : [], [magicOpen, recipe, selectedMagicPalette, magicSource, magicRun]);
+  const openMagic = async () => {
+    if (!mockup.media) { toast("Upload mockup media before generating Magic backgrounds"); return; }
+    try {
+      const extracted = await extractMagicColors(mockup.media, recipe.palette);
+      const nextPalettes = makeMagicPalettes(extracted);
+      setMagicPalettes(nextPalettes);
+      setSelectedMagicPaletteId(nextPalettes[0]?.id ?? "");
+      setMagicRun((value) => value + 1);
+      setMagicOpen(true);
+    } catch { toast.error("Could not read colours from this media"); }
+  };
+  const applyMagicVisual = (next: Recipe, label: string) => { change(next); setMagicOpen(false); toast(`${label} magic background applied`); };
+  useEffect(() => {
+    if (!magicOpen) return;
+    const onPointerDown = (event: globalThis.PointerEvent) => {
+      if (!magicActionRef.current?.contains(event.target as Node)) setMagicOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMagicOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [magicOpen]);
   const exportText = (content: string, filename: string, type: string) => { const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([content], { type })); link.download = filename; link.click(); URL.revokeObjectURL(link.href); };
   const reactCode = recipe.kind === "ascii"
     ? `// ASCII looks render image/video to a canvas character grid.\n// Style: ${recipe.asciiStyle}\n// Source: ${recipe.mediaSource?.type === "sample" ? recipe.mediaSource.sampleId : "upload"}\n\n${JSON.stringify({ asciiStyle: recipe.asciiStyle, asciiBlendMode: recipe.asciiBlendMode, asciiCharset: recipe.asciiCharset, asciiAnimationStyle: recipe.asciiAnimationStyle, animate: recipe.animate, speed: recipe.speed, warp: recipe.warp, palette: recipe.palette, intensity: recipe.intensity, zoom: recipe.zoom, contrast: recipe.contrast, reverse: recipe.reverse, smoothBlend: recipe.smoothBlend }, null, 2)}\n`
@@ -1339,21 +1631,24 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
     const exportGeometry: CameraGeometry = { viewportWidth: canvas.width, viewportHeight: canvas.height, stageWidth: canvas.width * stageWidthRatio, stageHeight: canvas.height * stageHeightRatio, padWidth: 0, padHeight: 0 };
     const frame = getCameraFrame(mockup, exportGeometry);
     const width = exportGeometry.stageWidth; const height = exportGeometry.stageHeight;
-    const framePad = mockup.borderStyle === "inset" ? 10 : 0;
+    const borderWidth = mockup.borderStyle === "none" ? 0 : mockup.borderWidth;
+    const framePad = mockup.borderStyle === "inset" ? borderWidth : 0;
     const bar = mockup.chrome === "browser" ? Math.max(40, height * .058) : 0;
     const mediaWidth = width - framePad * 2; const mediaHeight = height - bar - framePad * 2;
     const x = canvas.width / 2 + width * mockup.x / 100 - mockup.cameraX / 50 * frame.panLimitX;
     const y = canvas.height / 2 + height * mockup.y / 100 - mockup.cameraY / 50 * frame.panLimitY;
     context.save(); context.translate(x, y); context.scale(frame.renderScale, frame.renderScale); context.rotate(mockup.rotate * Math.PI / 180); context.scale(1 - Math.abs(mockup.tiltY) / 60, 1 - Math.abs(mockup.tiltX) / 80);
-    context.shadowColor = `rgba(0,0,0,${.2 + mockup.shadow / 160})`; context.shadowBlur = 16 + mockup.shadow; context.shadowOffsetY = 8 + mockup.shadow / 3;
+    applyMockupCanvasShadow(context, mockup.shadow);
     const radius = Math.min(mockup.radius, Math.min(width, height) / 4);
-    const fillStyle = mockup.borderStyle === "glass" ? "rgba(255,255,255,.22)" : mockup.borderStyle === "none" ? "transparent" : mockup.borderStyle === "inset" ? "rgba(255,255,255,.14)" : "#111216";
+    const innerRadius = Math.max(0, radius - framePad);
+    const fillStrength = mockup.fillOpacity;
+    const fillStyle = mockup.borderStyle === "glass" ? `rgba(255,255,255,${.22 * fillStrength})` : mockup.borderStyle === "none" ? "transparent" : mockup.borderStyle === "inset" ? `rgba(255,255,255,${.14 * fillStrength})` : `rgba(17,18,22,${fillStrength})`;
     context.fillStyle = fillStyle;
     if (mockup.borderStyle !== "none") { context.beginPath(); context.roundRect(-width / 2, -height / 2, width, height, radius); context.fill(); }
-    if (mockup.borderStyle === "border") { context.strokeStyle = "rgba(255,255,255,.92)"; context.lineWidth = 2; context.beginPath(); context.roundRect(-width / 2, -height / 2, width, height, radius); context.stroke(); }
-    if (mockup.borderStyle === "glass") { context.strokeStyle = "rgba(255,255,255,.62)"; context.lineWidth = 1; context.beginPath(); context.roundRect(-width / 2, -height / 2, width, height, radius); context.stroke(); }
-    if (mockup.borderStyle === "inset") { context.strokeStyle = "rgba(0,0,0,.45)"; context.lineWidth = 3; context.beginPath(); context.roundRect(-width / 2 + 1.5, -height / 2 + 1.5, width - 3, height - 3, radius); context.stroke(); }
-    context.shadowColor = "transparent"; context.save(); context.beginPath(); context.roundRect(-mediaWidth / 2, -height / 2 + bar + framePad, mediaWidth, mediaHeight, radius); context.clip();
+    if (mockup.borderStyle === "border") { context.strokeStyle = "rgba(255,255,255,.92)"; context.lineWidth = borderWidth; context.beginPath(); context.roundRect(-width / 2, -height / 2, width, height, radius); context.stroke(); }
+    if (mockup.borderStyle === "glass") { context.strokeStyle = "rgba(255,255,255,.62)"; context.lineWidth = borderWidth; context.beginPath(); context.roundRect(-width / 2, -height / 2, width, height, radius); context.stroke(); }
+    if (mockup.borderStyle === "inset") { context.strokeStyle = "rgba(0,0,0,.45)"; context.lineWidth = borderWidth; const inset = borderWidth / 2; context.beginPath(); context.roundRect(-width / 2 + inset, -height / 2 + inset, width - borderWidth, height - borderWidth, innerRadius); context.stroke(); }
+    context.shadowColor = "transparent"; context.save(); context.beginPath(); context.roundRect(-mediaWidth / 2, -height / 2 + bar + framePad, mediaWidth, mediaHeight, innerRadius); context.clip();
     if (mediaImage) context.drawImage(mediaImage, -mediaWidth / 2, -height / 2 + bar + framePad, mediaWidth, mediaHeight);
     else { context.fillStyle = "#171a2c"; context.fillRect(-mediaWidth / 2, -height / 2 + bar + framePad, mediaWidth, mediaHeight); context.fillStyle = "#f5f6ff"; context.font = `600 ${Math.max(18, mediaWidth / 11)}px sans-serif`; context.textAlign = "center"; context.fillText(mockup.mediaType === "video" ? "Video mockup" : "Your product", 0, 12); }
     context.restore();
@@ -2207,7 +2502,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
 
   return <main className={`studio-shell ${editorMode === "animation" ? "animation-mode" : ""}${isMobile && drawerOpen ? " drawer-open" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
     <header className="topbar"><div className="brand"><span className="brand-mark">S</span><span>SHADER STUDIO</span><Button variant="ghost" size="icon" className={`brand-info${infoShaderTick > 0 ? " is-revealing" : ""}`} onClick={() => setAboutOpen(true)} aria-label="About Shader Studio" aria-haspopup="dialog" aria-expanded={aboutOpen}>{infoShaderTick > 0 && <motion.span key={infoShaderTick} className="brand-info-shader" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 1, 0] }} transition={{ duration: 3, times: [0, 0.18, 0.72, 1], ease: "easeInOut" }} onAnimationComplete={() => setInfoShaderTick(0)} aria-hidden="true"><ShaderCanvas recipe={aboutInfoRecipe} frozen={false} onError={() => undefined} /></motion.span>}<Info strokeWidth={2.2} /></Button></div><div className="top-actions"><button className="icon-button" onClick={undo} disabled={!history.length} aria-label="Undo"><Undo2 /></button><button className="icon-button" onClick={redo} disabled={!future.length} aria-label="Redo"><Redo2 /></button><button className="button ghost" onClick={shareCurrentRecipe}><Share2 />{shareCopied ? "Copied" : "Share"}</button><button className="button ghost export-action" onClick={openExport}><ImageDown /> Export</button><button className="button primary copy-prompt-action" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button primary" onClick={openSave}><Save /> Save preset</button></div></header>
-    <section className={`workspace${tab === "mockup" ? " is-mockup-tab" : ""}`}>
+    <section className={`workspace${tab === "mockup" ? " is-mockup-tab" : ""}${magicOpen ? " is-magic-open" : ""}`}>
       <nav className="icon-rail" aria-label="Shader controls"><div className={`rail-tabs ${editorMode === "animation" ? "mode-disabled" : ""}`}>{tabs.map(({ id, label, icon: Icon }) => <button key={id} disabled={editorMode === "animation"} className={`rail-tab ${tab === id ? "active" : ""}`} onClick={() => selectTab(id)} aria-label={label}><Icon size={19} strokeWidth={1.8} /><span>{label}</span></button>)}</div><button type="button" className="rail-tab rail-skill" onClick={() => setSkillOpen(true)} aria-label="Open landing page shader skill"><BookOpen size={19} strokeWidth={1.8} /><span>Skill</span></button></nav>
       {isMobile && drawerOpen && <button type="button" className="drawer-backdrop" aria-label="Close panel" onClick={() => setDrawerOpen(false)} />}
       <aside className={`inspector ${tab === "mockup" && editorMode === "animation" ? "mode-disabled" : ""}${isMobile && drawerOpen ? " is-open" : ""}`}><div className="drawer-chrome"><span>{tab === "presets" ? "Presets" : tab === "visuals" ? "Visuals" : "Mockup"}</span><button type="button" className="drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Close panel"><X /></button></div><div className={`inspector-scroll ${tab === "visuals" ? "inspector-scroll-visuals" : "scroll-fade scroll-fade-y scroll-fade-6 no-scrollbar"}`}>
@@ -2228,11 +2523,11 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
             onRemove={removeTypeBlock}
           />
         )}
-        {tab === "mockup" && mockupPanel === "media" && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline preload="metadata" /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid mockup-chrome-style-grid">{mockupChromeStyles.map((chrome) => <button key={chrome} type="button" onClick={() => updateMockup({ chrome })} className={mockup.chrome === chrome ? "selected" : ""}><i className={`chrome-sample ${chrome}`} aria-hidden="true" /><span>{chrome === "none" ? "None" : "Browser"}</span></button>)}</div><div className="section-label">Border style</div><div className="mockup-style-grid mockup-border-style-grid">{mockupBorderStyles.map((borderStyle) => <button key={borderStyle} type="button" onClick={() => updateMockup({ borderStyle })} className={mockup.borderStyle === borderStyle ? "selected" : ""}><i className={`frame-sample ${borderStyle}`} /><span>{borderStyle === "none" ? "Clean" : borderStyle}</span></button>)}</div><div className="section-label">Border rounding</div><div className="mockup-segment mockup-radius-segment"><button type="button" onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button type="button" onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button type="button" onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment mockup-shadow-segment"><button type="button" onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button type="button" onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button type="button" onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
+        {tab === "mockup" && mockupPanel === "media" && <div className="panel-content mockup-panel"><input ref={mediaInput} className="visually-hidden" type="file" accept="image/*,video/*" onChange={loadMockupMedia} /><h2>Mockup</h2><p className="helper">Place your product on the live shader scene.</p><button className="mockup-upload" onClick={() => mediaInput.current?.click()}>{mockup.media && mockup.mediaType === "image" ? <img src={mockup.media} alt="Selected mockup media" /> : mockup.media ? <video src={mockup.media} muted playsInline preload="metadata" /> : <span className="mockup-upload-placeholder"><ImageDown /><b>Screenshot</b><small>Drop media or click to choose</small></span>}</button><button className="button wide ghost replace-media" onClick={() => mediaInput.current?.click()}>{mockup.media ? "Replace media" : "Choose media"}</button><div className="mockup-aspect-inline"><div className="section-label">Aspect ratio</div><div className="aspect-ratio-grid">{(["auto", "16 / 9", "4 / 3", "1 / 1", "9 / 16"] as MockupAspect[]).map((aspect) => <button key={aspect} onClick={() => setMockupAspect(aspect)} className={mockupAspect === aspect ? "selected" : ""}><i className={`aspect-symbol ${aspect === "auto" ? "auto" : `ratio-${aspect.replaceAll(" ", "").replace("/", "-")}`}`} /><span>{aspect === "auto" ? "Auto" : aspect}</span></button>)}</div></div><div className="section-label">Style</div><div className="mockup-style-grid mockup-chrome-style-grid">{mockupChromeStyles.map((chrome) => <button key={chrome} type="button" onClick={() => updateMockup({ chrome })} className={mockup.chrome === chrome ? "selected" : ""}><i className={`chrome-sample ${chrome}`} aria-hidden="true" /><span>{chrome === "none" ? "None" : "Browser"}</span></button>)}</div><div className="section-label">Border style</div><div className="mockup-style-grid mockup-border-style-grid">{mockupBorderStyles.map((borderStyle) => <button key={borderStyle} type="button" onClick={() => updateMockup({ borderStyle })} className={mockup.borderStyle === borderStyle ? "selected" : ""}><i className={`frame-sample ${borderStyle}`} /><span>{borderStyle === "none" ? "Clean" : borderStyle}</span></button>)}</div><Slider label="Border width" value={mockup.borderWidth} min={0} max={12} step={1} unit="px" onChange={(borderWidth) => updateMockup({ borderWidth })} />{mockup.borderStyle !== "none" && <Slider label="Fill opacity" value={mockup.fillOpacity} min={0} max={1} step={.01} unit="%" onChange={(fillOpacity) => updateMockup({ fillOpacity })} />}{mockup.borderStyle === "glass" && <Slider label="Backdrop blur" value={mockup.backdropBlur} min={0} max={24} step={1} unit="px" onChange={(backdropBlur) => updateMockup({ backdropBlur })} />}<p className="helper mockup-frame-helper">Transparent PNGs show the frame fill and blur through empty pixels. Use Clean, or set Fill to 0% and Blur to 0px, for a cutout.</p><div className="section-label">Border rounding</div><div className="mockup-segment mockup-radius-segment"><button type="button" onClick={() => updateMockup({ radius: 0 })} className={mockup.radius === 0 ? "selected" : ""}>Sharp</button><button type="button" onClick={() => updateMockup({ radius: 20 })} className={mockup.radius === 20 ? "selected" : ""}>Curved</button><button type="button" onClick={() => updateMockup({ radius: 42 })} className={mockup.radius === 42 ? "selected" : ""}>Round</button></div><Slider label="Radius" value={mockup.radius} min={0} max={48} step={1} unit="px" onChange={(radius) => updateMockup({ radius })} /><div className="section-label">Shadow</div><div className="mockup-segment mockup-shadow-segment"><button type="button" onClick={() => updateMockup({ shadow: 0 })} className={mockup.shadow === 0 ? "selected" : ""}>None</button><button type="button" onClick={() => updateMockup({ shadow: 40 })} className={mockup.shadow === 40 ? "selected" : ""}>Spread</button><button type="button" onClick={() => updateMockup({ shadow: 80 })} className={mockup.shadow === 80 ? "selected" : ""}>Hug</button></div><Slider label="Opacity" value={mockup.shadow / 100} min={0} max={1} step={.01} unit="%" onChange={(shadow) => updateMockup({ shadow: shadow * 100 })} /><div className="section-label">Visibility</div><button className="mockup-visibility" onClick={() => updateMockup({ visible: !mockup.visible })}><Eye /> {mockup.visible ? "Hide mockup" : "Show mockup"}</button><div className="mockup-details"><span>Details</span><div><b>Device</b><em>{mockup.mediaType === "video" ? "Video" : mockup.media ? "Screenshot" : "Demo card"}</em></div><div><b>Screen pixels</b><em>Adapts to media</em></div></div></div>}
         {tab === "mockup" && mockupPanel === "view" && !isMobile && <div className="panel-content type-view-hint"><p className="helper">Camera, tilt, and layout presets stay in the right inspector. Type lives on the field under Media → Type.</p></div>}
         {tab === "mockup" && isMobile && mockupPanel === "view" && editorMode !== "animation" && renderCameraInspector()}
       </div><div className="local-recipes"><div className="section-label">Local recipes</div>{saved.length ? saved.slice(0, 3).map((item) => <button key={item.id} onClick={() => setRecipe(item)}>{item.name}<ChevronDown /></button>) : <span>Saved looks appear here.</span>}</div></aside>
-{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div className={`alignment-grid ${alignmentGridVisible ? "visible" : ""}`} aria-hidden="true" /><TypeCanvasLayer blocks={typeBlocks.filter((block) => resolveTypeZOrder(block) === "below")} selectedId={selectedTypeId} interactive={typeLayerInteractive} layer="below" onSelect={selectTypeBlock} onChange={updateTypeBlock} /><div ref={mockupStageRef} className={`mockup-stage chrome-${mockup.chrome} border-${mockup.borderStyle}${typeLayerInteractive ? " is-type-editing" : ""}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, ["--mockup-radius"]: `${mockup.radius}px`, boxShadow: `0 ${18 + mockup.shadow / 3}px ${35 + mockup.shadow}px rgba(0,0,0,${.2 + mockup.shadow / 160})`, opacity: exitFx.opacity, filter: exitFx.filter, visibility: mockup.visible ? "visible" : "hidden" } as CSSProperties}><div className="browser-bar" aria-hidden={mockup.chrome !== "browser"}><div className="browser-traffic"><i className="close" /><i className="minimize" /><i className="zoom" /></div><div className="browser-address"><span>your-product.com</span></div></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <button type="button" className="mockup-demo" onClick={() => mediaInput.current?.click()} aria-label="Upload images or videos" />}</div><TypeCanvasLayer blocks={typeBlocks.filter((block) => resolveTypeZOrder(block) === "above")} selectedId={selectedTypeId} interactive={typeLayerInteractive} layer="above" onSelect={selectTypeBlock} onChange={updateTypeBlock} /></div>{!isMobile && renderCameraInspector()}</>}
+{tab === "mockup" && <><div ref={mockupViewportRef} className="mockup-viewport">{editorMode === "animation" && activeClip && <div className="stage-target-badge"><i /> TARGET · {activeClip.label} · {activeClip.easing}</div>}<div className={`alignment-grid ${alignmentGridVisible ? "visible" : ""}`} aria-hidden="true" /><TypeCanvasLayer blocks={typeBlocks.filter((block) => resolveTypeZOrder(block) === "below")} selectedId={selectedTypeId} interactive={typeLayerInteractive} layer="below" onSelect={selectTypeBlock} onChange={updateTypeBlock} /><div ref={mockupStageRef} className={`mockup-stage chrome-${mockup.chrome} border-${mockup.borderStyle}${typeLayerInteractive ? " is-type-editing" : ""}`} style={{ transform: stageTransform(stageMockup), borderRadius: mockup.radius, ["--mockup-radius"]: `${mockup.radius}px`, ["--mockup-border-width"]: `${mockup.borderWidth}px`, ["--mockup-fill-opacity"]: mockup.fillOpacity, ["--mockup-backdrop-blur"]: `${stageMockup.backdropBlur}px`, boxShadow: mockupDropShadow(stageMockup.shadow), opacity: exitFx.opacity, filter: exitFx.filter, visibility: mockup.visible ? "visible" : "hidden" } as CSSProperties}><div className="browser-bar" aria-hidden={mockup.chrome !== "browser"}><div className="browser-traffic"><i className="close" /><i className="minimize" /><i className="zoom" /></div><div className="browser-address"><span>your-product.com</span></div></div>{mockup.media && mockup.mediaType === "video" ? <video src={mockup.media} autoPlay muted loop playsInline /> : mockup.media ? <img src={mockup.media} alt="Mockup preview" /> : <button type="button" className="mockup-demo" onClick={() => mediaInput.current?.click()} aria-label="Upload images or videos" />}</div><TypeCanvasLayer blocks={typeBlocks.filter((block) => resolveTypeZOrder(block) === "above")} selectedId={selectedTypeId} interactive={typeLayerInteractive} layer="above" onSelect={selectTypeBlock} onChange={updateTypeBlock} /></div>{!isMobile && renderCameraInspector()}</>}
         {tab === "mockup" && editorMode === "animation" && <>
          <aside className="motion-inspector">
           <div className="motion-header"><div><span className="eyebrow">SELECTED ANIMATION</span><h2>{activeClip?.label ?? "Animation"}</h2><p>Choose its destination, then fine-tune it.</p></div><div className="motion-header-actions"><button className="duplicate-animation" onClick={duplicateActiveClip} title="Duplicate animation" aria-label="Duplicate animation"><Copy /></button><button onClick={selectBaseMedia}>Edit base</button></div></div>
@@ -2319,9 +2614,9 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
           </motion.section>}
         </AnimatePresence>
       </>}
-      <section className={`canvas-area${tab === "mockup" ? " is-mockup" : ""}`}>
+      <section className={`canvas-area${tab === "mockup" ? " is-mockup" : ""}${magicOpen ? " is-magic-open" : ""}`}>
         <div className="canvas-frame">
-          <ShaderCanvas recipe={recipe} frozen={frozen || exportOpen || mockupExportOpen || aboutOpen} onError={setError} />
+          <ShaderCanvas key={`stage-${previewKey}`} recipe={recipe} frozen={previewSuspended} onError={handlePreviewError} />
           {tab !== "mockup" && (
             <TypeCanvasLayer
               blocks={typeBlocks}
@@ -2331,7 +2626,13 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
               onChange={updateTypeBlock}
             />
           )}
-          {error && <div className="canvas-error"><CircleHelp /> Shader error — open Code to repair it.</div>}
+          {error && (
+            <div className="canvas-error">
+              <CircleHelp />
+              <span>Shader error — open Code to repair it, or reset the preview.</span>
+              <button type="button" className="canvas-error-reset" onClick={resetPreview}><RefreshCcw /> Reset preview</button>
+            </div>
+          )}
         </div>
         <AnimatePresence initial={false}>
           <motion.div
@@ -2345,6 +2646,17 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
             <div className={`canvas-meta ${frozen ? "is-frozen" : "is-live"}`}><span className={frozen ? "frozen-dot" : "live-dot"} aria-hidden="true" />{frozen ? "FROZEN" : "LIVE"} <b>{activeLabel}</b></div>
             <TooltipProvider delayDuration={200}>
               <div className="canvas-dock">
+                {tab === "mockup" && (
+                  <div className="magic-action-wrap" ref={magicActionRef}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className={magicOpen ? "is-active" : ""} onClick={openMagic} aria-expanded={magicOpen}><Sparkles /> Magic</button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Generate palette-matched backgrounds from mockup media</TooltipContent>
+                    </Tooltip>
+                    {magicOpen && selectedMagicPalette && <MagicBackgroundPopover palettes={magicPalettes} selectedId={selectedMagicPalette.id} visuals={magicVisuals} onSelectPalette={setSelectedMagicPaletteId} onRegenerate={() => setMagicRun((value) => value + 1)} onApply={applyMagicVisual} onClose={() => setMagicOpen(false)} />}
+                  </div>
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button type="button" onClick={vary}><Dices /> Vary</button>
@@ -2380,6 +2692,19 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
                     <button type="button" onClick={() => setFrozen((value) => !value)} aria-pressed={frozen}>{frozen ? <Play /> : <Pause />}{frozen ? "Play" : "Freeze"}</button>
                   </TooltipTrigger>
                   <TooltipContent side="top">{frozen ? "Resume the live preview" : "Freeze the live preview"}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className={`icon-only shader-highlight-button${previewBroken ? " is-revealing" : ""}`} onClick={resetPreview} aria-label="Restart preview">
+                      {previewBroken && (
+                        <span className="shader-highlight-button-shader" aria-hidden="true">
+                          <ShaderCanvas recipe={aboutInfoRecipe} frozen={false} onError={() => undefined} />
+                        </span>
+                      )}
+                      <RefreshCcw />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{previewBroken ? "Preview broke — tap to restart" : "Fix a broken preview"}</TooltipContent>
                 </Tooltip>
               </div>
             </TooltipProvider>

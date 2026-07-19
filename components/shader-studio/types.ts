@@ -95,7 +95,7 @@ export type AnimationClip = { id: string; label: string; presetId: string; start
 export type ClipClipboard = { clip: AnimationClip; mode: "copy" | "cut" };
 export type ClipMenuState = { clipId: string; x: number; y: number };
 export type VideoExportSettings = { aspect: "16:9" | "1:1" | "9:16"; height: 480 | 720 | 1080 | 1440; fps: 24 | 30 | 60; duration: 2 | 3 | 5 | 8; loop: boolean; mimeType: string };
-export type MockupSettings = { media: string | null; mediaType: "image" | "video" | null; chrome: MockupChrome; borderStyle: MockupBorderStyle; radius: number; shadow: number; scale: number; x: number; y: number; cameraX: number; cameraY: number; tiltX: number; tiltY: number; rotate: number; flipX?: boolean; flipY?: boolean; visible: boolean };
+export type MockupSettings = { media: string | null; mediaType: "image" | "video" | null; chrome: MockupChrome; borderStyle: MockupBorderStyle; borderWidth: number; fillOpacity: number; backdropBlur: number; radius: number; shadow: number; scale: number; x: number; y: number; cameraX: number; cameraY: number; tiltX: number; tiltY: number; rotate: number; flipX?: boolean; flipY?: boolean; visible: boolean };
 export type CameraGeometry = { viewportWidth: number; viewportHeight: number; stageWidth: number; stageHeight: number; padWidth: number; padHeight: number };
 export type CameraFrame = { renderScale: number; panLimitX: number; panLimitY: number; cropWidth: number; cropHeight: number; cropCenterX: number; cropCenterY: number; previewScale: number };
 
