@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { ImageDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { captureThumbnailBlob } from "./capture";
@@ -298,7 +299,7 @@ export function ThumbnailLab() {
             Generate shader, media, and ASCII thumbnail samples with preset or random source input.
           </p>
         </div>
-        <a className="thumbnail-lab-back" href="/">← Shader Studio</a>
+        <Link className="thumbnail-lab-back" href="/">← Shader Studio</Link>
       </header>
 
       <section className="thumbnail-lab-controls">
