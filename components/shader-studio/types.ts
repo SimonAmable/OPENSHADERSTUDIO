@@ -30,7 +30,9 @@ export type ThreeObjectId =
   | "icosahedron"
   | "box"
   | "torus-knot"
-  | "capsule";
+  | "capsule"
+  | "star"
+  | "sparkle";
 
 export type ThreeMaterialId =
   | "chrome"
@@ -52,6 +54,26 @@ export type ThreeMaterialId =
 export type ThreeEnvironmentId = "open" | "nocturne" | "gallery" | "daylight";
 
 export type ThreeOpenBackgroundMode = "solid" | "shader";
+
+export type ThreeSceneMode = "objects" | "preset";
+
+export type ThreeScenePresetId =
+  | "agentic-cloud"
+  | "volumetric-glow"
+  | "caustic-stage"
+  | "catalog-grid"
+  | "pulse-sidekick"
+  | "morph-sdf";
+
+export type ThreeSceneObject = {
+  id: string;
+  object: ThreeObjectId;
+  material: ThreeMaterialId;
+  modelUpload: string | null;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: number;
+};
 
 export type AsciiStyleId =
   | "characters"
@@ -173,9 +195,13 @@ export type Recipe = {
   asciiCharset: AsciiCharsetId;
   asciiAnimationStyle: AsciiAnimationStyle;
   mediaSource: MediaSource | null;
+  threeSceneMode: ThreeSceneMode;
+  threeScenePreset: ThreeScenePresetId;
+  threeObjects: ThreeSceneObject[];
+  threeActiveObjectId: string | null;
   threeObject: ThreeObjectId;
   threeMaterial: ThreeMaterialId;
-  /** GLB/GLTF data URL; when set, replaces the procedural preset mesh. */
+  /** GLB/GLTF data URL; when set, replaces the procedural preset mesh on the active object. */
   threeModelUpload: string | null;
   threeEnvironment: ThreeEnvironmentId;
   threePedestal: boolean;

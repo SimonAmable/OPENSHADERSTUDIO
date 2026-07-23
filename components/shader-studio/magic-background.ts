@@ -2,7 +2,8 @@ import { asciiStyleNames } from "./ascii-catalog";
 import { mediaFilterNames } from "./media-catalog";
 import { threeMaterialNames, threeObjectNames } from "./three-catalog";
 import { fragmentShader, styleNames } from "./canvas";
-import type { AsciiStyleId, MediaFilterId, Recipe, ThreeMaterialId, ThreeObjectId } from "./types";
+import { threeScenePresetNames } from "./three-scene-catalog";
+import type { AsciiStyleId, MediaFilterId, Recipe, ThreeMaterialId, ThreeObjectId, ThreeScenePresetId } from "./types";
 
 export type MagicPalette = { id: string; name: string; description: string; colors: string[] };
 export type MagicVisual = { id: string; kind: "shader" | "media" | "ascii" | "3d"; label: string; recipe: Recipe };
@@ -126,7 +127,8 @@ export function makeMagicVisuals(base: Recipe, palette: MagicPalette, source: Re
   const shaderStyles = [7, 5, 8, 4];
   const mediaFilters: MediaFilterId[] = ["paper-water", "vfx-bloom"];
   const asciiStyles: AsciiStyleId[] = ["mosaic", "lines"];
-  const sceneLooks: Array<{ object: ThreeObjectId; material: ThreeMaterialId }> = [
+  const sceneLooks: Array<{ object: ThreeObjectId; material: ThreeMaterialId } | { preset: ThreeScenePresetId }> = [
+    { preset: "agentic-cloud" },
     { object: "torus-knot", material: "liquid-chrome" },
     { object: "icosahedron", material: "aurora" },
   ];
@@ -134,25 +136,51 @@ export function makeMagicVisuals(base: Recipe, palette: MagicPalette, source: Re
     ...shaderStyles.map((style, index) => ({ id: `shader-${style}`, kind: "shader" as const, label: styleNames[style] ?? "Shader", recipe: make(index, { kind: "shader", style, name: styleNames[style] ?? "Magic shader", intensity: .45 + pick() * .45, warp: .25 + pick() * .6, zoom: .8 + pick() * .7, contrast: .35 + pick() * .45 }) })),
     ...mediaFilters.map((mediaFilter, index) => ({ id: `media-${mediaFilter}`, kind: "media" as const, label: mediaFilterNames[mediaFilter], recipe: make(index + 4, { kind: "media", mediaFilter, name: mediaFilterNames[mediaFilter], intensity: .42 + pick() * .42, warp: .25 + pick() * .6, zoom: .8 + pick() * .7, contrast: .35 + pick() * .45 }) })),
     ...asciiStyles.map((asciiStyle, index) => ({ id: `ascii-${asciiStyle}`, kind: "ascii" as const, label: asciiStyleNames[asciiStyle], recipe: make(index + 6, { kind: "ascii", asciiStyle, name: asciiStyleNames[asciiStyle], asciiBlendMode: "screen", intensity: .35 + pick() * .4, zoom: .8 + pick() * .65, contrast: .35 + pick() * .45 }) })),
-    ...sceneLooks.map(({ object, material }, index) => ({
-      id: `3d-${material}-${object}`,
-      kind: "3d" as const,
-      label: `${threeMaterialNames[material]} · ${threeObjectNames[object]}`,
-      recipe: make(index + 8, {
-        kind: "3d",
-        threeObject: object,
-        threeMaterial: material,
-        threeModelUpload: null,
-        threeEnvironment: "nocturne",
-        threePedestal: true,
-        name: `${threeMaterialNames[material]} · ${threeObjectNames[object]}`,
-        intensity: .5 + pick() * .4,
-        warp: .25 + pick() * .55,
-        zoom: .85 + pick() * .5,
-        contrast: .4 + pick() * .4,
-        offsetX: -0.4 + pick() * 0.8,
-        offsetY: 0.1 + pick() * 0.4,
-      }),
-    })),
+    ...sceneLooks.map((look, index) => (
+      "preset" in look
+        ? {
+            id: `3d-preset-${look.preset}`,
+            kind: "3d" as const,
+            label: threeScenePresetNames[look.preset],
+            recipe: make(index + 8, {
+              kind: "3d",
+              threeSceneMode: "preset",
+              threeScenePreset: look.preset,
+              threeObject: "torus-knot",
+              threeMaterial: "chrome",
+              threeModelUpload: null,
+              threeEnvironment: "open",
+              threePedestal: false,
+              name: threeScenePresetNames[look.preset],
+              intensity: .5 + pick() * .4,
+              warp: .25 + pick() * .55,
+              zoom: .85 + pick() * .5,
+              contrast: .4 + pick() * .4,
+              offsetX: -0.4 + pick() * 0.8,
+              offsetY: 0.1 + pick() * 0.4,
+            }),
+          }
+        : {
+            id: `3d-${look.material}-${look.object}`,
+            kind: "3d" as const,
+            label: `${threeMaterialNames[look.material]} · ${threeObjectNames[look.object]}`,
+            recipe: make(index + 8, {
+              kind: "3d",
+              threeSceneMode: "objects",
+              threeObject: look.object,
+              threeMaterial: look.material,
+              threeModelUpload: null,
+              threeEnvironment: "nocturne",
+              threePedestal: true,
+              name: `${threeMaterialNames[look.material]} · ${threeObjectNames[look.object]}`,
+              intensity: .5 + pick() * .4,
+              warp: .25 + pick() * .55,
+              zoom: .85 + pick() * .5,
+              contrast: .4 + pick() * .4,
+              offsetX: -0.4 + pick() * 0.8,
+              offsetY: 0.1 + pick() * 0.4,
+            }),
+          }
+    )),
   ];
 }

@@ -11,6 +11,8 @@ import {
 } from "./ascii-catalog";
 import { isMediaFilterId } from "./media-catalog";
 import { DEFAULT_THREE_ENVIRONMENT, DEFAULT_THREE_MATERIAL, DEFAULT_THREE_OBJECT, DEFAULT_THREE_OPEN_BACKGROUND, DEFAULT_THREE_PEDESTAL, isRoomEnvironment, isThreeEnvironmentId, isThreeMaterialId, isThreeObjectId } from "./three-catalog";
+import { DEFAULT_THREE_SCENE_MODE, DEFAULT_THREE_SCENE_PRESET, migrateThreeScenePreset } from "./three-scene-catalog";
+import { resolveThreeObjects, syncPrimaryThreeFields } from "./three-scene-objects";
 import { defaultMediaSource } from "./samples";
 
 export const DEFAULT_MEDIA_FILTER: MediaFilterId = "paper-water";
@@ -40,6 +42,18 @@ export function normalizeRecipe(input: Partial<Recipe> & { id?: string; name?: s
   const threeModelUpload = typeof input.threeModelUpload === "string" && input.threeModelUpload.startsWith("data:")
     ? input.threeModelUpload
     : null;
+  const threeSceneMode = input.threeSceneMode === "preset" ? "preset" : DEFAULT_THREE_SCENE_MODE;
+  const threeScenePreset = migrateThreeScenePreset(input.threeScenePreset) ?? DEFAULT_THREE_SCENE_PRESET;
+  const threeObjects = resolveThreeObjects({
+    threeObjects: input.threeObjects,
+    threeObject,
+    threeMaterial,
+    threeModelUpload,
+  });
+  const threeActiveObjectId = typeof input.threeActiveObjectId === "string"
+    && threeObjects.some((item) => item.id === input.threeActiveObjectId)
+    ? input.threeActiveObjectId
+    : threeObjects[0]?.id ?? null;
   let mediaSource: MediaSource | null = null;
   if (input.mediaSource && typeof input.mediaSource === "object") {
     if (input.mediaSource.type === "sample" && typeof input.mediaSource.sampleId === "string") {
@@ -75,6 +89,10 @@ export function normalizeRecipe(input: Partial<Recipe> & { id?: string; name?: s
     asciiCharset,
     asciiAnimationStyle,
     mediaSource,
+    threeSceneMode,
+    threeScenePreset,
+    threeObjects,
+    threeActiveObjectId,
     threeObject,
     threeMaterial,
     threeModelUpload,

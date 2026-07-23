@@ -196,6 +196,7 @@ export const defaultRecipe: Recipe = {
   asciiStyle: "characters", asciiBlendMode: "normal", asciiCharset: "standard", asciiAnimationStyle: "mixed",
   mediaSource: null,
   threeObject: DEFAULT_THREE_OBJECT, threeMaterial: DEFAULT_THREE_MATERIAL, threeModelUpload: null,
+  threeSceneMode: "objects", threeScenePreset: "agentic-cloud", threeObjects: [], threeActiveObjectId: null,
   threeEnvironment: "nocturne", threePedestal: true, threeOpenBackground: "solid",
   palette: ["#060914", "#273dff", "#00ddff", "#e8fbff"],
   intensity: .76, zoom: 1.02, warp: .2, contrast: .56, speed: 1, drift: .5, blur: 0, animate: true, reverse: false, grain: .045, rotate: 0, offsetX: 0, offsetY: 0, seed: 1, smoothBlend: false,
@@ -209,6 +210,7 @@ export const appPresets: Recipe[] = [{
   mediaFilter: "paper-water", mediaSource: null,
   asciiStyle: "characters", asciiBlendMode: "normal", asciiCharset: "standard", asciiAnimationStyle: "mixed",
   threeObject: DEFAULT_THREE_OBJECT, threeMaterial: DEFAULT_THREE_MATERIAL, threeModelUpload: null,
+  threeSceneMode: "objects", threeScenePreset: "agentic-cloud", threeObjects: [], threeActiveObjectId: null,
   threeEnvironment: "nocturne", threePedestal: true, threeOpenBackground: "solid",
   palette: ["#09151a", "#146b82", "#4bbad7", "#e6faff"],
   intensity: 0.7770323292260786, zoom: 0.6589337896921063, warp: 0.6077682917880166,
@@ -928,6 +930,17 @@ export function SceneThumbnail({ material }: { material: ThreeMaterialId }) {
       alt=""
       aria-hidden="true"
       onError={() => setUseFallback(true)}
+    />
+  );
+}
+
+export function ScenePresetThumbnail({ preset, swatch }: { preset: string; swatch: string }) {
+  return (
+    <span
+      className="shader-thumbnail scene-thumbnail scene-preset-thumbnail"
+      data-preset={preset}
+      style={{ background: swatch }}
+      aria-hidden="true"
     />
   );
 }

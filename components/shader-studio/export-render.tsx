@@ -12,7 +12,13 @@ import { renderNativeRecipeToCanvas } from "./render-png";
 import { exportAsciiPng } from "./ascii-export";
 import { captureVfxMediaExportCanvas, exportMediaPng } from "./media-export";
 import { isPaperMediaFilter } from "./media-catalog";
-import { roomTheme, sceneBackgroundColor } from "./three-canvas";
+import {
+  isReasonableThreeExportCanvas,
+  roomTheme,
+  sampleCanvasLuminance,
+  sceneBackgroundColor,
+  waitForThreeExportReady,
+} from "./three-canvas";
 
 async function settleFrames(frames: number) {
   for (let index = 0; index < frames; index += 1) {
@@ -26,7 +32,12 @@ async function mountShaderExportHost(recipe: Recipe, width: number, height: numb
   host.style.cssText = `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;overflow:hidden;pointer-events:none;opacity:0;z-index:-1;`;
   document.body.appendChild(host);
 
-  let root: Root | null = createRoot(host);
+  const shell = document.createElement("div");
+  shell.setAttribute("data-shader-export-shell", "");
+  shell.style.cssText = "position:absolute;inset:0;width:100%;height:100%;overflow:hidden;";
+  host.appendChild(shell);
+
+  let root: Root | null = createRoot(shell);
   root.render(<ShaderCanvas recipe={recipe} frozen={frozen} onError={() => undefined} />);
 
   const dispose = () => {
@@ -50,10 +61,20 @@ async function mountShaderExportHost(recipe: Recipe, width: number, height: numb
       ?? host.querySelector<HTMLCanvasElement>(".paper-shader-host canvas");
   };
 
-  const waitAttempts = recipe.kind === "media" ? 240 : 180;
+  const waitAttempts = recipe.kind === "media" || recipe.kind === "3d" ? 240 : 180;
   for (let attempt = 0; attempt < waitAttempts; attempt += 1) {
     const canvas = queryCanvas();
-    if (canvas && canvas.width > 0 && canvas.height > 0) {
+    if (recipe.kind === "3d") {
+      if (canvas && isReasonableThreeExportCanvas(canvas, width, height) && canvas.hasAttribute("data-three-rendered")) {
+        try {
+          await waitForThreeExportReady(canvas, width, height);
+          await settleFrames(6);
+          return { host, canvas, dispose };
+        } catch {
+          // Keep polling until the scene finishes its first real draw.
+        }
+      }
+    } else if (canvas && canvas.width > 0 && canvas.height > 0) {
       await settleFrames(recipe.kind === "media" ? 45 : 2);
       return { host, canvas, dispose };
     }
@@ -64,9 +85,25 @@ async function mountShaderExportHost(recipe: Recipe, width: number, height: numb
   throw new Error("Could not prepare a full-resolution visual for export");
 }
 
+async function waitForSceneBackgroundReady(host: ParentNode, recipe: Recipe) {
+  const shaderBg = recipe.threeEnvironment === "open" && recipe.threeOpenBackground === "shader";
+  if (!shaderBg) return;
+
+  for (let attempt = 0; attempt < 180; attempt += 1) {
+    const backgroundCanvas = host.querySelector<HTMLCanvasElement>(".three-scene-background canvas");
+    if (backgroundCanvas && backgroundCanvas.width > 0 && sampleCanvasLuminance(backgroundCanvas) > 12) {
+      await settleFrames(4);
+      return;
+    }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+}
+
 async function renderThreeSceneExportCanvas(recipe: Recipe, width: number, height: number) {
   const mount = await mountShaderExportHost(recipe, width, height);
   try {
+    await waitForSceneBackgroundReady(mount.host, recipe);
+    await settleFrames(4);
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;

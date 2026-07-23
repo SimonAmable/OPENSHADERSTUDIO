@@ -12,7 +12,8 @@ export type SurfaceField =
   | "offsetX"
   | "offsetY"
   | "seed"
-  | "drift";
+  | "drift"
+  | "speed";
 
 export type SurfaceToggleField = "smoothBlend" | "reverse";
 

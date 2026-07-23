@@ -2,8 +2,22 @@ import { RefreshCcw, WandSparkles } from "lucide-react";
 import { defaultRecipe, presetGroups, ShaderThumbnail, styleNames } from "./canvas";
 import type { Recipe, ThreeEnvironmentId } from "./types";
 import { getThreeMaterial, isRoomEnvironment, threeEnvironments } from "./three-catalog";
-import { getThreeSurfaceProfile, threeSurfaceResetFields, type SurfaceSliderDef } from "./three-surface-controls";
+import { getSceneSurfaceProfile } from "./three-scene-surface";
+import { threeSurfaceResetFields, type SurfaceSliderDef } from "./three-surface-controls";
 import { Slider } from "./slider";
+
+import { getActiveSceneObject } from "./three-scene-objects";
+
+function getActiveMaterialId(recipe: Recipe) {
+  return getActiveSceneObject(recipe).material;
+}
+
+function getResetMaterialId(recipe: Recipe) {
+  if (recipe.threeSceneMode === "objects") {
+    return getActiveMaterialId(recipe);
+  }
+  return recipe.threeMaterial;
+}
 
 function SurfaceSlider({ def, recipe, onChange }: { def: SurfaceSliderDef; recipe: Recipe; onChange: (update: Partial<Recipe>) => void }) {
   const value = recipe[def.field];
@@ -21,14 +35,17 @@ function SurfaceSlider({ def, recipe, onChange }: { def: SurfaceSliderDef; recip
 }
 
 export function ThreeSurfacePanel({ recipe, onChange }: { recipe: Recipe; onChange: (update: Partial<Recipe>) => void }) {
-  const material = getThreeMaterial(recipe.threeMaterial);
-  const profile = getThreeSurfaceProfile(recipe.threeMaterial);
+  const profile = getSceneSurfaceProfile(recipe);
   const isOpen = recipe.threeEnvironment === "open";
+  const isPreset = recipe.threeSceneMode === "preset";
+  const materialLabel = isPreset
+    ? "Scene preset"
+    : getThreeMaterial(getActiveMaterialId(recipe)).label;
 
   return (
     <div className="panel-content">
       <p className="helper">{profile.helper}</p>
-      <div className="media-surface-filter-tag">{material.label}</div>
+      <div className="media-surface-filter-tag">{materialLabel}</div>
 
       <section className="control-section">
         <h3>Environment</h3>
@@ -138,7 +155,7 @@ export function ThreeSurfacePanel({ recipe, onChange }: { recipe: Recipe; onChan
 
       {profile.frame && profile.frame.length > 0 && (
         <section className="control-section">
-          <h3>Object</h3>
+          <h3>{isPreset ? "Motion" : "Object"}</h3>
           {profile.frame.map((def) => (
             <SurfaceSlider key={def.field} def={def} recipe={recipe} onChange={onChange} />
           ))}
@@ -162,7 +179,7 @@ export function ThreeSurfacePanel({ recipe, onChange }: { recipe: Recipe; onChan
               <WandSparkles /> Reseed
             </button>
           )}
-          <button className="button ghost" type="button" onClick={() => onChange(threeSurfaceResetFields(recipe.threeMaterial, defaultRecipe))}>
+          <button className="button ghost" type="button" onClick={() => onChange(threeSurfaceResetFields(getResetMaterialId(recipe), defaultRecipe))}>
             <RefreshCcw /> Reset
           </button>
         </div>

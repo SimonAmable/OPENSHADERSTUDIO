@@ -1,4 +1,6 @@
 import type { Recipe, ThreeEnvironmentId, ThreeMaterialId, ThreeObjectId } from "./types";
+import { threeScenePresetNames } from "./three-scene-catalog";
+import { resolveThreeObjects } from "./three-scene-objects";
 
 export type ThreeObjectDef = {
   id: ThreeObjectId;
@@ -25,6 +27,8 @@ export const threeObjects: ThreeObjectDef[] = [
   { id: "box", label: "Box", group: "Solids" },
   { id: "torus-knot", label: "Torus knot", group: "Forms" },
   { id: "capsule", label: "Capsule", group: "Forms" },
+  { id: "star", label: "Star", group: "Forms" },
+  { id: "sparkle", label: "Sparkle", group: "Forms" },
 ];
 
 export const threeMaterials: ThreeMaterialDef[] = [
@@ -163,11 +167,27 @@ export function resolveThreePreviewObject(value: string): ThreeObjectId {
   return isThreeObjectId(value) ? value : DEFAULT_THREE_OBJECT;
 }
 
-export function threeSceneLabel(recipe: Pick<Recipe, "threeMaterial" | "threeObject" | "threeModelUpload" | "name">) {
-  if (recipe.threeModelUpload) {
+export function threeSceneLabel(recipe: Partial<Pick<Recipe, "threeMaterial" | "threeObject" | "threeModelUpload" | "name" | "threeSceneMode" | "threeScenePreset" | "threeObjects">>) {
+  if (recipe.threeSceneMode === "preset" && recipe.threeScenePreset) {
+    return threeScenePresetNames[recipe.threeScenePreset] ?? "Scene preset";
+  }
+  const objects = resolveThreeObjects(recipe);
+  if (objects.length > 1) {
+    return `${objects.length} objects`;
+  }
+  const active = objects[0];
+  if (active?.modelUpload) {
+    return `${threeMaterialNames[active.material] ?? "Material"} · Upload`;
+  }
+  if (active) {
+    const material = threeMaterialNames[active.material] ?? "Material";
+    const object = threeObjectNames[active.object] ?? "Object";
+    return `${material} · ${object}`;
+  }
+  if (recipe.threeModelUpload && recipe.threeMaterial) {
     return `${threeMaterialNames[recipe.threeMaterial] ?? "Material"} · Upload`;
   }
-  const material = threeMaterialNames[recipe.threeMaterial] ?? "Material";
-  const object = threeObjectNames[recipe.threeObject] ?? "Object";
+  const material = recipe.threeMaterial ? threeMaterialNames[recipe.threeMaterial] ?? "Material" : "Material";
+  const object = recipe.threeObject ? threeObjectNames[recipe.threeObject] ?? "Object" : "Object";
   return `${material} · ${object}`;
 }

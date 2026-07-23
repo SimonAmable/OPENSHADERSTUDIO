@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { landingPageShaderSystemSkill } from "./landing-page-shader-system-skill";
 import { motionDemoSkill } from "./motion-demo-skill";
 
-import type { AnimationClip, AsciiStyleId, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipAnchor, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExitStyle, ExportTab, MediaFilterId, MediaSource, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupPanelSection, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, ThreeMaterialId, ThreeObjectId, TypeBlock, VideoExportSettings, VisualKind, VisualSection } from "./shader-studio/types";
+import type { AnimationClip, AsciiStyleId, CameraGeometry, CameraMode, CameraTool2D, CameraTool3D, ClipAnchor, ClipClipboard, ClipMenuState, CursorEffect, EditorMode, ExitStyle, ExportTab, MediaFilterId, MediaSource, MockupAspect, MockupBorderStyle, MockupChrome, MockupExportMode, MockupPanelSection, MockupSettings, OutputAspect, Recipe, SavedPalette, Tab, ThemeOption, ThreeMaterialId, ThreeObjectId, ThreeSceneMode, ThreeScenePresetId, TypeBlock, VideoExportSettings, VisualKind, VisualSection } from "./shader-studio/types";
 import { MAX_TYPE_BLOCKS, TypeCanvasLayer, TypePanel, createTypeBlock, resolveTypeZOrder, typePresets } from "./shader-studio/type-layer";
 import { drawTypeBlocksToCanvas, partitionTypeBlocksForExport } from "./shader-studio/type-export";
 import { useStudioStore } from "./shader-studio/store";
@@ -42,11 +42,19 @@ import {
   DEFAULT_THREE_OBJECT,
   threeMaterialGroups,
   threeMaterialNames,
-  threeObjectGroups,
   threeObjectNames,
   threeSceneLabel,
 } from "./shader-studio/three-catalog";
-import { getThreeSurfaceSummary } from "./shader-studio/three-surface-controls";
+import { threeScenePresetGroups, threeScenePresetNames } from "./shader-studio/three-scene-catalog";
+import { getSceneSurfaceSummary, sceneModeLabel } from "./shader-studio/three-scene-surface";
+import { resolveThreeObjects } from "./shader-studio/three-scene-objects";
+import {
+  applyObjectMaterial,
+  applyObjectModelUpload,
+  applyObjectShape,
+  clearObjectModelUpload,
+  ThreeObjectPanel,
+} from "./shader-studio/three-object-panel";
 import { ThreeSurfacePanel } from "./shader-studio/three-surface-panel";
 import { renderThreeFrameToCanvas } from "./shader-studio/three-canvas";
 import {
@@ -60,7 +68,7 @@ import { extractMagicColors, makeMagicPalettes, makeMagicVisuals, type MagicPale
 import { clearMagicThumbnailCache, useMagicThumbnails } from "./shader-studio/magic-thumbnails";
 import { SafariBrowserBar, drawSafariBrowserChrome, BROWSER_CHROME_BASE_HEIGHT } from "./shader-studio/browser-chrome";
 import { AboutModalBackdrop } from "./shader-studio/about/about-modal";
-export { MediaThumbnail, SceneObjectThumbnail, StaticAsciiPreview, StaticMediaPreview, StaticSceneMaterialPreview, StaticSceneObjectPreview, StaticStylePreview } from "./shader-studio/canvas";
+export { MediaThumbnail, SceneObjectThumbnail, ScenePresetThumbnail, StaticAsciiPreview, StaticMediaPreview, StaticSceneMaterialPreview, StaticSceneObjectPreview, StaticStylePreview } from "./shader-studio/canvas";
 export { resolveMediaPreviewFilter } from "./shader-studio/media-catalog";
 export { resolveAsciiPreviewStyle } from "./shader-studio/preview-recipes";
 export { resolveThreePreviewMaterial, resolveThreePreviewObject } from "./shader-studio/three-catalog";
@@ -92,7 +100,7 @@ function applyMockupCanvasShadow(context: CanvasRenderingContext2D, shadow: numb
 }
 const modKey = isApplePlatform ? "⌘" : "Ctrl";
 
-import { SAVED_PALETTES_KEY, SAVED_RECIPES_KEY, RESUME_RECIPE_KEY, AsciiThumbnail, MediaThumbnail, SavedRecipePreview, SceneObjectThumbnail, SceneThumbnail, ShaderCanvas, ShaderThumbnail, StaticStylePreview, appPresets, buildThemeOptions, capitalizeWords, companyThemeKey, companyThemes, createPaperExportSurface, defaultRecipe, drawPaperShaderToCanvas, exportExtensionForMime, exportVideoBitrate, formatPaperPropsForExport, fragmentShader, hexToRgb, isPaperStyle, isStagePreviewBroken, mockupPresets, palettes, paperProps, paperShaderNames, presetGroups, presetSettings, queryShaderCanvas, queryVisualCanvas, recordCanvasAnimation, savedThemeKey, styleNames, tabs } from "./shader-studio/canvas";
+import { SAVED_PALETTES_KEY, SAVED_RECIPES_KEY, RESUME_RECIPE_KEY, AsciiThumbnail, MediaThumbnail, SavedRecipePreview, SceneObjectThumbnail, ScenePresetThumbnail, SceneThumbnail, ShaderCanvas, ShaderThumbnail, StaticStylePreview, appPresets, buildThemeOptions, capitalizeWords, companyThemeKey, companyThemes, createPaperExportSurface, defaultRecipe, drawPaperShaderToCanvas, exportExtensionForMime, exportVideoBitrate, formatPaperPropsForExport, fragmentShader, hexToRgb, isPaperStyle, isStagePreviewBroken, mockupPresets, palettes, paperProps, paperShaderNames, presetGroups, presetSettings, queryShaderCanvas, queryVisualCanvas, recordCanvasAnimation, savedThemeKey, styleNames, tabs } from "./shader-studio/canvas";
 
 type SharedRecipe = Omit<Recipe, "id" | "glsl"> & { v: number };
 
@@ -306,6 +314,11 @@ function VisualsPanel({
 
   const sourceLabel = (() => {
     if (isScene) {
+      if (recipe.threeSceneMode === "preset") {
+        return threeScenePresetNames[recipe.threeScenePreset] ?? "Scene preset";
+      }
+      const objects = resolveThreeObjects(recipe);
+      if (objects.length > 1) return `${objects.length} objects`;
       if (recipe.threeModelUpload) return "Uploaded GLB";
       return threeObjectNames[recipe.threeObject] ?? "Object";
     }
@@ -322,7 +335,7 @@ function VisualsPanel({
     : isMedia
     ? getMediaSurfaceSummary(recipe.mediaFilter, recipe)
     : isScene
-    ? getThreeSurfaceSummary(recipe.threeMaterial, recipe)
+    ? getSceneSurfaceSummary(recipe)
     : `Intensity ${Math.round(recipe.intensity * 100)}% · Grain ${Math.round(recipe.grain / .12 * 100)}%`;
   const motionSummary = isAscii
     ? asciiMotionSummary(recipe)
@@ -339,7 +352,9 @@ function VisualsPanel({
       summary: sourceLabel,
       preview: isScene ? (
         <span className="style-chip scene-source-chip" data-object={recipe.threeObject}>
-          <SceneThumbnail material={recipe.threeMaterial} />
+          {recipe.threeSceneMode === "preset"
+            ? <ScenePresetThumbnail preset={recipe.threeScenePreset} swatch={threeScenePresetGroups.flatMap((g) => g.items).find((item) => item.id === recipe.threeScenePreset)?.swatch ?? "#10131f"} />
+            : <SceneThumbnail material={recipe.threeMaterial} />}
         </span>
       ) : resolvedSource ? (
         <span className="style-chip media-source-chip">
@@ -359,7 +374,9 @@ function VisualsPanel({
         : isMedia
         ? <span className="style-chip"><MediaThumbnail filter={recipe.mediaFilter} /></span>
         : isScene
-        ? <span className="style-chip"><SceneThumbnail material={recipe.threeMaterial} /></span>
+        ? <span className="style-chip">{recipe.threeSceneMode === "preset"
+          ? <ScenePresetThumbnail preset={recipe.threeScenePreset} swatch={threeScenePresetGroups.flatMap((g) => g.items).find((item) => item.id === recipe.threeScenePreset)?.swatch ?? "#10131f"} />
+          : <SceneThumbnail material={recipe.threeMaterial} />}</span>
         : <span className="style-chip"><ShaderThumbnail style={recipe.style} /></span>,
     },
     { id: "surface", label: "Surface", icon: Layers3, summary: surfaceSummary },
@@ -371,55 +388,20 @@ function VisualsPanel({
   const renderSectionContent = (section: VisualSection) => {
     switch (section) {
       case "source":
+        if (isScene && recipe.threeSceneMode === "objects") {
+          return (
+            <ThreeObjectPanel
+              recipe={recipe}
+              onChange={onChange}
+              onUploadModel={onUploadModel}
+              onSelectObjectShape={onSelectThreeObject}
+            />
+          );
+        }
         if (isScene) {
           return (
             <div className="panel-content">
-              <p className="helper">Pick a preset object, or upload your own GLB / GLTF model.</p>
-              <input
-                ref={modelInputRef}
-                className="visually-hidden"
-                type="file"
-                accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) onUploadModel(file);
-                  event.target.value = "";
-                }}
-              />
-              <div className="media-source-row">
-                <button type="button" className="media-source-preview scene-upload-preview" onClick={() => modelInputRef.current?.click()}>
-                  {recipe.threeModelUpload ? <span><Layers3 /><small>GLB</small></span> : <span><ImageDown /><small>Upload</small></span>}
-                </button>
-                <button type="button" className="button wide ghost" onClick={() => modelInputRef.current?.click()}>
-                  {recipe.threeModelUpload ? "Replace model" : "Upload GLB"}
-                </button>
-              </div>
-              {recipe.threeModelUpload && (
-                <button type="button" className="button wide ghost" onClick={onClearModelUpload}>Use preset object</button>
-              )}
-              <div className="section-label">Presets</div>
-              {threeObjectGroups.map((group) => (
-                <section className="preset-group" key={group.title}>
-                  <h3>{group.title}</h3>
-                  <div className="preset-grid">
-                    {group.items.map((object) => {
-                      const selected = !recipe.threeModelUpload && recipe.threeObject === object.id;
-                      return (
-                        <button
-                          key={object.id}
-                          type="button"
-                          onClick={() => onSelectThreeObject(object.id)}
-                          className={`preset-card media-filter-card ${selected ? "selected" : ""}`}
-                        >
-                          <SceneObjectThumbnail object={object.id} />
-                          <span className="media-filter-badge">3D</span>
-                          <span>{object.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
+              <p className="helper">Scene presets are composed R3F environments. Tune palette, motion, and surface controls to customize the look.</p>
             </div>
           );
         }
@@ -505,26 +487,79 @@ function VisualsPanel({
               </>
             ) : isScene ? (
               <>
-                <p className="helper">Surface materials use Three.js PBR. Shader materials are animated GLSL adapted from the 2D shader library.</p>
-                {threeMaterialGroups.map((group) => (
-                  <section className="preset-group" key={group.title}>
-                    <h3>{group.title}</h3>
-                    <div className="preset-grid">
-                      {group.items.map((material) => (
-                        <button
-                          key={material.id}
-                          type="button"
-                          onClick={() => onSelectThreeMaterial(material.id, material.label)}
-                          className={`preset-card media-filter-card ${recipe.threeMaterial === material.id ? "selected" : ""}`}
-                        >
-                          <SceneThumbnail material={material.id} />
-                          <span className="media-filter-badge">S</span>
-                          <span>{material.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                ))}
+                <p className="helper">Choose composed scene presets or switch to Compose to build multi-object arrangements.</p>
+                <div className="scene-mode-toggle" role="tablist" aria-label="3D scene mode">
+                  {(["preset", "objects"] as ThreeSceneMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="tab"
+                      aria-selected={recipe.threeSceneMode === mode}
+                      className={recipe.threeSceneMode === mode ? "selected" : ""}
+                      onClick={() => onChange({
+                        threeSceneMode: mode,
+                        name: mode === "preset"
+                          ? threeScenePresetNames[recipe.threeScenePreset] ?? "Scene preset"
+                          : threeSceneLabel({ ...recipe, threeSceneMode: mode }),
+                      })}
+                    >
+                      {sceneModeLabel(mode)}
+                    </button>
+                  ))}
+                </div>
+                {recipe.threeSceneMode === "preset" ? (
+                  threeScenePresetGroups.map((group) => (
+                    <section className="preset-group" key={group.title}>
+                      <h3>{group.title}</h3>
+                      <div className="preset-grid">
+                        {group.items.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => onChange({
+                              kind: "3d",
+                              threeSceneMode: "preset",
+                              threeScenePreset: preset.id,
+                              name: preset.label,
+                            })}
+                            className={`preset-card media-filter-card ${recipe.threeScenePreset === preset.id ? "selected" : ""}`}
+                          >
+                            <ScenePresetThumbnail preset={preset.id} swatch={preset.swatch} />
+                            <span className="media-filter-badge">FX</span>
+                            <span>{preset.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ))
+                ) : (
+                  <>
+                    <p className="helper">Materials apply to the selected object. Add more objects in Source.</p>
+                    {threeMaterialGroups.map((group) => (
+                      <section className="preset-group" key={group.title}>
+                        <h3>{group.title}</h3>
+                        <div className="preset-grid">
+                          {group.items.map((material) => {
+                            const active = resolveThreeObjects(recipe).find((item) => item.id === recipe.threeActiveObjectId) ?? resolveThreeObjects(recipe)[0];
+                            const selected = active?.material === material.id;
+                            return (
+                              <button
+                                key={material.id}
+                                type="button"
+                                onClick={() => onSelectThreeMaterial(material.id, material.label)}
+                                className={`preset-card media-filter-card ${selected ? "selected" : ""}`}
+                              >
+                                <SceneThumbnail material={material.id} />
+                                <span className="media-filter-badge">S</span>
+                                <span>{material.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    ))}
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -1085,16 +1120,17 @@ export function ShaderStudio() {
   const selectThreeMaterial = (id: ThreeMaterialId, _label: string) => {
     change({
       kind: "3d",
-      threeMaterial: id,
-      name: threeSceneLabel({ ...recipe, threeMaterial: id }),
+      threeSceneMode: "objects",
+      ...applyObjectMaterial(recipe, id),
+      name: threeSceneLabel({ ...recipe, threeSceneMode: "objects", threeMaterial: id }),
     });
   };
   const selectThreeObject = (id: ThreeObjectId) => {
     change({
       kind: "3d",
-      threeObject: id,
-      threeModelUpload: null,
-      name: threeSceneLabel({ ...recipe, threeObject: id, threeModelUpload: null }),
+      threeSceneMode: "objects",
+      ...applyObjectShape(recipe, id),
+      name: threeSceneLabel({ ...recipe, threeSceneMode: "objects", threeObject: id, threeModelUpload: null }),
     });
   };
   const selectVisualKind = (kind: VisualKind) => {
@@ -1116,8 +1152,13 @@ export function ShaderStudio() {
       return;
     }
     if (kind === "3d") {
+      const objects = resolveThreeObjects(recipe);
       change({
         kind: "3d",
+        threeSceneMode: recipe.threeSceneMode ?? "objects",
+        threeScenePreset: recipe.threeScenePreset ?? "agentic-cloud",
+        threeObjects: objects,
+        threeActiveObjectId: recipe.threeActiveObjectId ?? objects[0]?.id ?? null,
         threeObject: recipe.threeObject || DEFAULT_THREE_OBJECT,
         threeMaterial: recipe.threeMaterial || DEFAULT_THREE_MATERIAL,
         threeEnvironment: recipe.threeEnvironment || "nocturne",
@@ -1160,7 +1201,8 @@ export function ShaderStudio() {
       if (!dataUrl) return;
       change({
         kind: "3d",
-        threeModelUpload: dataUrl,
+        threeSceneMode: "objects",
+        ...applyObjectModelUpload(recipe, dataUrl),
         name: `${threeMaterialNames[recipe.threeMaterial] ?? "Material"} · Upload`,
       });
       toast("Model added");
@@ -1169,7 +1211,8 @@ export function ShaderStudio() {
   };
   const clearSceneModelUpload = () => {
     change({
-      threeModelUpload: null,
+      threeSceneMode: "objects",
+      ...clearObjectModelUpload(recipe),
       name: threeSceneLabel({ ...recipe, threeModelUpload: null }),
     });
     toast("Using preset object");
@@ -1701,7 +1744,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       : recipe.kind === "3d"
       ? threeSceneLabel(recipe)
       : (styleNames[recipe.style] ?? recipe.name)),
-    [recipe.kind, recipe.asciiStyle, recipe.mediaFilter, recipe.threeMaterial, recipe.threeObject, recipe.threeModelUpload, recipe.style, recipe.name],
+    [recipe.kind, recipe.asciiStyle, recipe.mediaFilter, recipe.threeSceneMode, recipe.threeScenePreset, recipe.threeObjects, recipe.threeMaterial, recipe.threeObject, recipe.threeModelUpload, recipe.style, recipe.name],
   );
   const availablePresets = useMemo(() => [...appPresets, ...saved.filter((item) => !appPresets.some((preset) => preset.id === item.id))], [saved]);
   const filteredSaved = useMemo(() => {
@@ -2423,7 +2466,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
                       </TooltipTrigger>
                       <TooltipContent side="top">Generate palette-matched backgrounds from mockup media</TooltipContent>
                     </Tooltip>
-                    {magicOpen && selectedMagicPalette && <MagicBackgroundPopover palettes={magicPalettes} selectedId={selectedMagicPalette.id} visuals={magicVisuals} onSelectPalette={setSelectedMagicPaletteId} onRegenerate={() => setMagicRun((value) => value + 1)} onApply={applyMagicVisual} onClose={() => setMagicOpen(false)} />}
+                    {magicOpen && selectedMagicPalette && <MagicBackgroundPopover palettes={magicPalettes} selectedPalette={selectedMagicPalette} visuals={magicVisuals} magicRun={magicRun} magicSession={magicSession} onSelectPalette={setSelectedMagicPaletteId} onRegenerate={() => setMagicRun((value) => value + 1)} onApply={applyMagicVisual} onClose={() => setMagicOpen(false)} />}
                   </div>
                 )}
                 <Tooltip>
@@ -2501,7 +2544,7 @@ Feed the shader its u_resolution, u_time, u_pointer, u_velocity, u_colors, style
       )}
     </AnimatePresence>
     {saveOpen && <div className="modal-backdrop" role="presentation"><div className="save-modal" role="dialog" aria-modal="true" aria-labelledby="save-title"><button className="close" onClick={() => setSaveOpen(false)} aria-label="Close"><X /></button><h2 id="save-title">Save recipe</h2><p>Keep this shader configuration in this browser for later remixing.</p><input autoFocus value={saveName} onChange={(event) => setSaveName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && save()} /><button className="button primary wide" onClick={save}><Save /> Save locally</button></div></div>}
-    {skillOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal skill-modal" role="dialog" aria-modal="true" aria-labelledby={skillTab === "landing" ? "skill-tab-landing" : "skill-tab-motion"} onKeyDown={(event) => event.key === "Escape" && setSkillOpen(false)}><button className="close" onClick={() => setSkillOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="skill-tab-toggle" role="tablist" aria-label="Skill type"><button type="button" id="skill-tab-landing" role="tab" aria-selected={skillTab === "landing"} className={skillTab === "landing" ? "active" : ""} onClick={() => { setSkillTab("landing"); setCopied(false); }}>Landing shaders</button><button type="button" id="skill-tab-motion" role="tab" aria-selected={skillTab === "motion"} className={skillTab === "motion" ? "active" : ""} onClick={() => { setSkillTab("motion"); setCopied(false); }}>Motion demo</button></div></div><div className="export-modal-body"><div className="code-surface skill-surface"><textarea value={activeSkill} readOnly spellCheck={false} aria-label={skillTab === "landing" ? "Landing page shader system skill" : "Motion demo skill"} /><div className="source-actions skill-cta-wrap"><button type="button" className="button primary wide skill-cta" onClick={() => copyText(activeSkill, "Skill copied")} aria-live="polite"><span className="skill-cta-label">{copied ? "Copied" : "Copy skill"}</span></button></div></div></div></div></div>}
+    {skillOpen && <div className="modal-backdrop" role="presentation"><div className="export-modal skill-modal" role="dialog" aria-modal="true" aria-labelledby="skill-title" onKeyDown={(event) => event.key === "Escape" && setSkillOpen(false)}><button className="close" onClick={() => setSkillOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><h2 id="skill-title">Agent skill</h2><p>Copy a skill definition for your AI agent.</p></div></div><div className="skill-tab-toggle" role="tablist" aria-label="Skill type"><button type="button" id="skill-tab-landing" role="tab" aria-selected={skillTab === "landing"} className={skillTab === "landing" ? "active" : ""} onClick={() => { setSkillTab("landing"); setCopied(false); }}>Landing shaders</button><button type="button" id="skill-tab-motion" role="tab" aria-selected={skillTab === "motion"} className={skillTab === "motion" ? "active" : ""} onClick={() => { setSkillTab("motion"); setCopied(false); }}>Motion demo</button></div></div><div className="export-modal-body"><div className="code-surface skill-surface"><textarea value={activeSkill} readOnly spellCheck={false} aria-label={skillTab === "landing" ? "Landing page shader system skill" : "Motion demo skill"} /><div className="source-actions skill-cta-wrap"><button type="button" className="button primary wide skill-cta" onClick={() => copyText(activeSkill, "Skill copied")} aria-live="polite"><span className="skill-cta-label">{copied ? "Copied" : "Copy skill"}</span></button></div></div></div></div></div>}
     {exportOpen && <div className="modal-backdrop" role="presentation"><div className={`export-modal${exportTab === "variations" ? " variations-export-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="export-title"><button className="close" onClick={() => setExportOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><h2 id="export-title">Export shader</h2><p>Take the current look into your project in the format you need.</p></div></div><div className="export-tabs" role="tablist">{(["image", "video", "variations", "prompt", "react", "glsl"] as ExportTab[]).map((item) => <button key={item} className={exportTab === item ? "active" : ""} onClick={() => setExportTab(item)} role="tab" aria-selected={exportTab === item}>{exportTabLabel(item)}</button>)}</div></div><div className="export-modal-body">{exportTab === "image" && <ImageExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportPng} description="Cursor interactions are excluded from exports." />}{exportTab === "video" && <FullVideoExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportVideo} videoProgress={videoProgress} />}{exportTab === "variations" && <VariationsExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onApplyToCanvas={(next) => change(next)} />}{exportTab === "prompt" && <SourceSurface title="Build prompt" helper="A complete implementation prompt generated from the active shader configuration." source={buildPrompt()} footer={<><button className="button primary wide" onClick={() => copyText(buildPrompt(), "Build prompt copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy prompt"}</button><button className="button wide ghost" onClick={() => exportText(buildPrompt(), "shader-studio-prompt.txt", "text/plain")}><Download /> Download .txt</button></>} />}{exportTab === "react" && <SourceSurface title="React component" helper={exportReactHelper} source={reactCode} footer={<><button className="button primary wide" onClick={() => copyText(reactCode, "React component copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy React code"}</button><button className="button wide ghost" onClick={() => exportText(reactCode, "shader-studio-shader.ts", "text/plain")}><Download /> Download .ts</button></>} />}{exportTab === "glsl" && <SourceSurface title="Fragment GLSL" helper={exportGlslHelper} source={glslExportSource} footer={<><button className="button primary wide" onClick={() => copyText(glslExportSource, isPaperStyle(recipe.style) ? "Paper props copied" : "GLSL copied")}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : isPaperStyle(recipe.style) ? "Copy props" : "Copy GLSL"}</button><button className="button wide ghost" onClick={() => exportText(glslExportSource, isPaperStyle(recipe.style) ? "shader-studio-paper-props.json" : "shader-studio-shader.glsl", isPaperStyle(recipe.style) ? "application/json" : "text/plain")}><Download /> Download {isPaperStyle(recipe.style) ? ".json" : ".glsl"}</button></>} />}</div></div></div>}
     {mockupExportOpen && <div className="modal-backdrop" role="presentation"><div className={`export-modal mockup-export-modal${exportTab === "variations" ? " variations-export-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="mockup-export-title"><button className="close" onClick={() => setMockupExportOpen(false)} aria-label="Close"><X /></button><div className="export-modal-header"><div className="export-header"><div><h2 id="mockup-export-title">Export shader</h2><p>Choose a shader-only or composed mockup output.</p></div></div><div className="export-tabs" role="tablist"><button className={exportTab === "image" ? "active" : ""} onClick={() => setExportTab("image")}>Image</button><button className={exportTab === "video" ? "active" : ""} onClick={() => setExportTab("video")}>Animation</button><button className={exportTab === "variations" ? "active" : ""} onClick={() => setExportTab("variations")}>Variations</button><button className={exportTab === "mockup" ? "active" : ""} onClick={() => setExportTab("mockup")} disabled={!mockup.visible}>Mockup</button><button onClick={() => { setMockupExportOpen(false); setExportTab("prompt"); setExportOpen(true); }}>Prompt</button><button onClick={() => { setMockupExportOpen(false); setExportTab("react"); setExportOpen(true); }}>React code</button><button onClick={() => { setMockupExportOpen(false); setExportTab("glsl"); setExportOpen(true); }}>GLSL</button></div></div><div className="export-modal-body">{exportTab === "image" && <ImageExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportPng} description="Captures the shader only." />}{exportTab === "video" && <CompactVideoExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onExport={exportVideo} videoProgress={videoProgress} />}{exportTab === "variations" && <VariationsExportPanel recipe={recipe} settings={videoSettings} onSettingsChange={updateVideoSettings} onApplyToCanvas={(next) => change(next)} />}{exportTab === "mockup" && <><div className="export-mode-toggle" role="tablist"><button className={mockupExportMode === "image" ? "active" : ""} onClick={() => setMockupExportMode("image")}>Image</button><button className={mockupExportMode === "video" ? "active" : ""} onClick={() => setMockupExportMode("video")}>Video</button></div><div className="mockup-export-controls mockup-export-controls-solo"><h3>{mockupExportMode === "image" ? "Mockup PNG" : "Animated mockup video"}</h3><p>Exports the live mockup with shader, media, and type layers.</p><label>Aspect<select value={videoSettings.aspect} onChange={(event) => updateVideoSettings({ aspect: event.target.value as VideoExportSettings["aspect"] })}><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="9:16">9:16</option></select></label>{mockupExportMode === "image" ? <><label>Resolution<select value={mockupImageHeight} onChange={(event) => setMockupImageHeight(Number(event.target.value) as 720 | 1080 | 1440)}><option value={720}>720p</option><option value={1080}>1080p</option><option value={1440}>1440p</option></select></label><button className="button primary wide" onClick={exportMockupImage}><ImageDown /> Download mockup PNG</button></> : <><label>Resolution<select value={videoSettings.height} onChange={(event) => updateVideoSettings({ height: Number(event.target.value) as VideoExportSettings["height"] })}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option></select></label><label>Duration<select value={videoSettings.duration} onChange={(event) => updateVideoSettings({ duration: Number(event.target.value) as VideoExportSettings["duration"] })}><option value={2}>2 s</option><option value={3}>3 s</option><option value={5}>5 s</option></select></label><button className="button primary wide" onClick={exportMockupVideo} disabled={videoProgress !== null}><Video /> Export mockup video</button></>}</div></>}</div></div></div>}
 

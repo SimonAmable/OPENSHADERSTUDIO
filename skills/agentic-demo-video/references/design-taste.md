@@ -10,6 +10,15 @@ Apple keynote clarity meets YC launch velocity. Confident, minimal copy. Visual 
 
 Restless in a good way. The edit breathes only long enough for an idea to land, then moves. Energy builds; the close is the biggest moment. Silence on screen is a choice, not a gap — if nothing moves, something should have been cut.
 
+## Motion and cuts
+
+Apple keynote films feel continuous even when they cut constantly. Aim for that:
+
+- **Match cuts** — cut at peak velocity with matched direction and speed on both sides; the eye should ride one continuous move across the seam, not a slideshow hard cut
+- **Animated type as hero** — headlines reveal, swap, and hand off through motion; type is the main visual, not a caption layer
+- **Minimal chrome** — one idea, one focal element, one motion path per beat; let negative space and shader atmosphere do the rest
+- **Progression, not decoration** — every move earns a narrative beat: hook → proof → payoff
+
 ## Typography
 
 Words are visuals. Headlines carry the argument; everything else supports. Say less on screen than in the voiceover. When a number or outcome matters, it dominates. Type should feel typeset, not dropped in — weight, spacing, and reveal are part of the design.
@@ -36,7 +45,9 @@ One idea per frame. Show the minimum chrome that makes the paradigm legible. Dep
 
 ## Background and texture
 
-Shader Studio visuals in this repo are **mood**, not subject. They set temperature and pace behind the real content — type and UI. Hotter in the open, steadier in proof, resolved at the close. Never let atmosphere compete with what the viewer needs to read.
+Shader Studio visuals are **mood**, not subject. They set temperature and pace behind the real content — type and UI. Hotter in the open, steadier in proof, resolved at the close. Never let atmosphere compete with what the viewer needs to read.
+
+When backgrounds need to be recreated in the build pipeline, get the look from **Shader Studio on this site** first, then copy the **Export → Prompt** output — an LLM-ready shader recreation prompt — and hand it to HyperFrames or your build agent. Don't guess palette, motion, or feel from memory.
 
 ## Story
 

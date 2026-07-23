@@ -11,6 +11,8 @@ const objects = [
   "box",
   "torus-knot",
   "capsule",
+  "star",
+  "sparkle",
 ];
 
 function waitForServer(timeout = 90_000) {

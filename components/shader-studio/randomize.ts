@@ -11,6 +11,8 @@ import {
   threeObjectNames,
   threeSceneLabel,
 } from "./three-catalog";
+import { pickOtherThreeScenePreset, randomThreeScenePreset, threeScenePresetNames } from "./three-scene-catalog";
+import { resolveThreeObjects } from "./three-scene-objects";
 import { defaultMediaSource, pickRandomSample } from "./samples";
 
 export type VariationMode = "vary" | "inspire" | "recolour" | "remix" | "restyle";
@@ -63,8 +65,14 @@ function keepMediaSource(recipe: Recipe, kind: Extract<VisualKind, "media" | "as
   return recipe.mediaSource ?? defaultMediaSource(kind);
 }
 
-function keepThreeModel(recipe: Recipe | undefined) {
-  return recipe?.threeModelUpload ?? null;
+function keepThreeScene(recipe: Recipe | undefined) {
+  return {
+    threeSceneMode: recipe?.threeSceneMode ?? "objects",
+    threeScenePreset: recipe?.threeScenePreset ?? randomThreeScenePreset(),
+    threeObjects: resolveThreeObjects(recipe ?? {}),
+    threeActiveObjectId: recipe?.threeActiveObjectId ?? null,
+    threeModelUpload: recipe?.threeModelUpload ?? null,
+  };
 }
 
 function randomMediaFilter(): MediaFilterId {
@@ -92,7 +100,7 @@ export function remixRecipe(recipe: Recipe): Partial<Recipe> {
   }
   if (recipe.kind === "3d") {
     return {
-      threeModelUpload: keepThreeModel(recipe),
+      ...keepThreeScene(recipe),
       ...randomSurface(),
     };
   }
@@ -119,13 +127,22 @@ export function restyleRecipe(recipe: Recipe): Partial<Recipe> {
     };
   }
   if (recipe.kind === "3d") {
+    if (recipe.threeSceneMode === "preset") {
+      const threeScenePreset = pickOtherThreeScenePreset(recipe.threeScenePreset);
+      return {
+        name: threeSceneLabel({ ...recipe, threeScenePreset }),
+        threeScenePreset,
+        palette: recipe.palette,
+      };
+    }
     const threeMaterial = pickOtherThreeMaterial(recipe.threeMaterial);
-    const threeObject = recipe.threeModelUpload ? recipe.threeObject : pickOtherThreeObject(recipe.threeObject);
+    const active = resolveThreeObjects(recipe)[0];
+    const threeObject = active?.modelUpload ? recipe.threeObject : pickOtherThreeObject(recipe.threeObject);
     return {
       name: threeSceneLabel({ ...recipe, threeMaterial, threeObject }),
       threeMaterial,
       threeObject,
-      threeModelUpload: keepThreeModel(recipe),
+      ...keepThreeScene(recipe),
       palette: recipe.palette,
     };
   }
@@ -165,14 +182,29 @@ export function inspireRecipe(recipe?: Recipe): Partial<Recipe> {
     };
   }
   if (kind === "3d") {
+    const usePreset = Math.random() > 0.45;
+    if (usePreset) {
+      const threeScenePreset = randomThreeScenePreset();
+      return {
+        kind: "3d",
+        threeSceneMode: "preset",
+        threeScenePreset,
+        name: threeSceneLabel({ threeSceneMode: "preset", threeScenePreset, threeMaterial: randomThreeMaterial(), threeObject: randomThreeObject(), threeModelUpload: null, name: "Scene" }),
+        palette: palettes[Math.floor(Math.random() * palettes.length)],
+        ...randomSurface(),
+        ...randomMotionAndCursor(),
+        glsl: fragmentShader,
+      };
+    }
     const threeObject = randomThreeObject();
     const threeMaterial = randomThreeMaterial();
     return {
       kind: "3d",
-      name: threeSceneLabel({ threeObject, threeMaterial, threeModelUpload: null, name: "Scene" }),
+      threeSceneMode: "objects",
+      name: threeSceneLabel({ threeObject, threeMaterial, threeModelUpload: null, name: "Scene", threeSceneMode: "objects", threeScenePreset: randomThreeScenePreset() }),
       threeObject,
       threeMaterial,
-      threeModelUpload: keepThreeModel(recipe),
+      threeModelUpload: null,
       palette: palettes[Math.floor(Math.random() * palettes.length)],
       ...randomSurface(),
       ...randomMotionAndCursor(),
@@ -226,10 +258,28 @@ export function varyRecipe(recipe: Recipe): Partial<Recipe> {
     };
   }
   if (kind === "3d") {
+    const usePreset = Math.random() > 0.5;
+    if (usePreset) {
+      const threeScenePreset = randomThreeScenePreset();
+      return {
+        kind: "3d",
+        threeSceneMode: "preset",
+        threeScenePreset,
+        name: threeScenePresetNames[threeScenePreset] ?? "Scene preset",
+        threeObject: randomThreeObject(),
+        threeMaterial: randomThreeMaterial(),
+        threeModelUpload: null,
+        palette: palettes[Math.floor(Math.random() * palettes.length)],
+        ...randomSurface(),
+        ...randomMotionAndCursor(),
+        glsl: fragmentShader,
+      };
+    }
     const threeObject = randomThreeObject();
     const threeMaterial = randomThreeMaterial();
     return {
       kind: "3d",
+      threeSceneMode: "objects",
       name: `${threeMaterialNames[threeMaterial]} · ${threeObjectNames[threeObject]}`,
       threeObject,
       threeMaterial,
