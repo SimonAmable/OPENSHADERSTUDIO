@@ -1,4 +1,4 @@
-import type { AsciiStyleId, MediaFilterId, MediaSource, Recipe } from "./types";
+import type { AsciiStyleId, MediaFilterId, MediaSource, Recipe, ThreeMaterialId, ThreeObjectId } from "./types";
 import {
   asciiPreviewSampleId,
   asciiStyleIds,
@@ -12,6 +12,20 @@ import { asciiSurfaceResetFields } from "./ascii-surface-controls";
 import { normalizeRecipe } from "./normalize-recipe";
 import { recolourRecipe, remixRecipe } from "./randomize";
 import { getSampleById, pickRandomSample, samplesForKind } from "./samples";
+import {
+  DEFAULT_THREE_ENVIRONMENT,
+  DEFAULT_THREE_MATERIAL,
+  DEFAULT_THREE_OBJECT,
+  DEFAULT_THREE_OPEN_BACKGROUND,
+  DEFAULT_THREE_PEDESTAL,
+  THREE_OBJECT_PREVIEW_MATERIAL,
+  threeMaterialIds,
+  threeMaterialNames,
+  threeObjectIds,
+  threeObjectNames,
+  threePreviewObjectId,
+} from "./three-catalog";
+import { threeSurfaceResetFields } from "./three-surface-controls";
 import { defaultRecipe, fragmentShader, presetSettings, styleNames } from "./canvas";
 
 export type InputMode = "preset" | "random";
@@ -145,6 +159,93 @@ export function buildAsciiPreviewRecipe(
       fragmentShader,
     ),
     mode === "preset" ? options : undefined,
+  );
+}
+
+function buildThreePreviewBase(
+  material: ThreeMaterialId,
+  object: ThreeObjectId,
+  mode: InputMode,
+  seed: number | undefined,
+  options: PreviewPresetOptions | undefined,
+  id: string,
+  name: string,
+): Recipe {
+  const rng = mulberry32(seed ?? material.length * 419 + object.length * 131);
+  return withPresetPalette(
+    normalizeRecipe(
+      {
+        ...defaultRecipe,
+        ...threeSurfaceResetFields(material, defaultRecipe),
+        id,
+        name,
+        kind: "3d",
+        threeMaterial: material,
+        threeObject: object,
+        threeModelUpload: null,
+        threeEnvironment: DEFAULT_THREE_ENVIRONMENT,
+        threePedestal: DEFAULT_THREE_PEDESTAL,
+        threeOpenBackground: DEFAULT_THREE_OPEN_BACKGROUND,
+        animate: false,
+        cursorEnabled: false,
+        glsl: fragmentShader,
+        ...(mode === "random"
+          ? {
+              seed: Math.floor(rng() * 100_000),
+              intensity: .45 + rng() * .35,
+              zoom: .85 + rng() * .35,
+              warp: .2 + rng() * .45,
+              contrast: .4 + rng() * .35,
+              offsetX: -0.35 + rng() * 0.7,
+              offsetY: 0.05 + rng() * 0.35,
+            }
+          : {}),
+      },
+      fragmentShader,
+    ),
+    mode === "preset" ? options : undefined,
+  );
+}
+
+export function buildThreeMaterialPreviewRecipe(
+  material: ThreeMaterialId,
+  mode: InputMode = "preset",
+  seed?: number,
+  options?: PreviewPresetOptions,
+): Recipe {
+  const rng = mulberry32(seed ?? material.length * 419);
+  const object = mode === "preset"
+    ? threePreviewObjectId(material)
+    : threeObjectIds[Math.floor(rng() * threeObjectIds.length)] ?? DEFAULT_THREE_OBJECT;
+  return buildThreePreviewBase(
+    material,
+    object,
+    mode,
+    seed,
+    options,
+    `scene-preview-${material}`,
+    threeMaterialNames[material] ?? "Material",
+  );
+}
+
+export function buildThreeObjectPreviewRecipe(
+  object: ThreeObjectId,
+  mode: InputMode = "preset",
+  seed?: number,
+  options?: PreviewPresetOptions,
+): Recipe {
+  const rng = mulberry32(seed ?? object.length * 523);
+  const material = mode === "preset"
+    ? THREE_OBJECT_PREVIEW_MATERIAL
+    : threeMaterialIds[Math.floor(rng() * threeMaterialIds.length)] ?? DEFAULT_THREE_MATERIAL;
+  return buildThreePreviewBase(
+    material,
+    object,
+    mode,
+    seed,
+    options,
+    `scene-object-preview-${object}`,
+    threeObjectNames[object] ?? "Object",
   );
 }
 

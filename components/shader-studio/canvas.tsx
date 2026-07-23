@@ -6,12 +6,15 @@ import { BookOpen, ImageDown, WandSparkles } from "lucide-react";
 import { ColorPanels, Dithering, DotGrid, DotOrbit, GodRays, GrainGradient, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, PulsingBorder, SimplexNoise, SmokeRing, Spiral, StaticMeshGradient, StaticRadialGradient, Swirl, Voronoi, Warp, Waves } from "@paper-design/shaders-react";
 import { MediaCanvas, queryMediaCanvas, waitForMediaCanvas } from "./media-canvas";
 import { AsciiCanvas, queryAsciiCanvas, waitForAsciiCanvas } from "./ascii-canvas";
+import { ThreeCanvas, queryThreeCanvas, waitForThreeCanvas } from "./three-canvas";
 import { asciiStyleNames } from "./ascii-catalog";
+import { DEFAULT_THREE_MATERIAL, DEFAULT_THREE_OBJECT } from "./three-catalog";
 import { exportMediaPng, resolveMediaImageForExport } from "./media-export";
-import { buildMediaPreviewRecipe, buildAsciiPreviewRecipe, type InputMode } from "./preview-recipes";
+import { buildMediaPreviewRecipe, buildAsciiPreviewRecipe, buildThreeMaterialPreviewRecipe, buildThreeObjectPreviewRecipe, type InputMode } from "./preview-recipes";
 import { exportAsciiPng } from "./ascii-export";
+import { exportThreePng } from "./three-canvas";
 import { isPaperMediaFilter, isVfxMediaFilter } from "./media-catalog";
-import type { MediaFilterId, Recipe, SavedPalette, ThemeOption, MockupSettings, Tab } from "./types";
+import type { MediaFilterId, Recipe, SavedPalette, ThemeOption, MockupSettings, Tab, ThreeMaterialId, ThreeObjectId } from "./types";
 import { recordCanvasAnimation as encodeCanvasAnimation, exportExtensionForMime, exportVideoBitrate } from "./video-encoder";
 
 export { exportExtensionForMime, exportVideoBitrate };
@@ -192,6 +195,8 @@ export const defaultRecipe: Recipe = {
   id: "silk-01", name: "Silk", kind: "shader", style: 0, mediaFilter: "paper-water",
   asciiStyle: "characters", asciiBlendMode: "normal", asciiCharset: "standard", asciiAnimationStyle: "mixed",
   mediaSource: null,
+  threeObject: DEFAULT_THREE_OBJECT, threeMaterial: DEFAULT_THREE_MATERIAL, threeModelUpload: null,
+  threeEnvironment: "nocturne", threePedestal: true, threeOpenBackground: "solid",
   palette: ["#060914", "#273dff", "#00ddff", "#e8fbff"],
   intensity: .76, zoom: 1.02, warp: .2, contrast: .56, speed: 1, drift: .5, blur: 0, animate: true, reverse: false, grain: .045, rotate: 0, offsetX: 0, offsetY: 0, seed: 1, smoothBlend: false,
   cursorEnabled: true, cursorEffect: "spotlight", cursorStrength: .5, cursorRadius: .5, glsl: fragmentShader,
@@ -203,6 +208,8 @@ export const appPresets: Recipe[] = [{
   id: "electric-warp-stripes", name: "Electric Warp stripes", kind: "shader", style: 10,
   mediaFilter: "paper-water", mediaSource: null,
   asciiStyle: "characters", asciiBlendMode: "normal", asciiCharset: "standard", asciiAnimationStyle: "mixed",
+  threeObject: DEFAULT_THREE_OBJECT, threeMaterial: DEFAULT_THREE_MATERIAL, threeModelUpload: null,
+  threeEnvironment: "nocturne", threePedestal: true, threeOpenBackground: "solid",
   palette: ["#09151a", "#146b82", "#4bbad7", "#e6faff"],
   intensity: 0.7770323292260786, zoom: 0.6589337896921063, warp: 0.6077682917880166,
   contrast: 0.6671220502700947, speed: 0.15200116236584896, drift: 0.6233140640072878,
@@ -469,6 +476,7 @@ export function formatPaperPropsForExport(recipe: Recipe) {
 export function queryVisualCanvas(recipe: Recipe) {
   if (recipe.kind === "ascii") return queryAsciiCanvas();
   if (recipe.kind === "media") return queryMediaCanvas();
+  if (recipe.kind === "3d") return queryThreeCanvas();
   return queryShaderCanvas(recipe.style);
 }
 
@@ -480,6 +488,10 @@ export function queryStageVisualCanvas(recipe: Recipe) {
   if (recipe.kind === "media") {
     return document.querySelector<HTMLCanvasElement>(`${root} [data-media-paper] canvas`)
       ?? document.querySelector<HTMLCanvasElement>(`${root} [data-media-vfx-canvas]`);
+  }
+  if (recipe.kind === "3d") {
+    return document.querySelector<HTMLCanvasElement>(`${root} [data-three-scene] canvas`)
+      ?? document.querySelector<HTMLCanvasElement>(`${root} [data-three-canvas]`);
   }
   if (isPaperStyle(recipe.style)) {
     return document.querySelector<HTMLCanvasElement>(`${root} .paper-shader-host canvas`);
@@ -500,6 +512,7 @@ export function isStagePreviewBroken(recipe: Recipe) {
 export async function waitForVisualCanvas(recipe: Recipe, attempts = 90) {
   if (recipe.kind === "ascii") return waitForAsciiCanvas(attempts);
   if (recipe.kind === "media") return waitForMediaCanvas(attempts);
+  if (recipe.kind === "3d") return waitForThreeCanvas(attempts);
   return waitForShaderCanvas(recipe.style, attempts);
 }
 
@@ -520,8 +533,11 @@ export function queryShaderCanvas(style: number) {
         ".camera-pad .shader-canvas",
       ];
   for (const selector of selectors) {
-    const canvas = document.querySelector<HTMLCanvasElement>(selector);
-    if (canvas && canvas.width > 0 && canvas.height > 0) return canvas;
+    const canvases = document.querySelectorAll<HTMLCanvasElement>(selector);
+    for (const canvas of canvases) {
+      if (canvas.closest(".three-scene-background")) continue;
+      if (canvas.width > 0 && canvas.height > 0) return canvas;
+    }
   }
   return null;
 }
@@ -646,7 +662,19 @@ export async function waitForShaderCanvas(style: number, attempts = 90) {
   throw new Error("Live shader preview is unavailable");
 }
 
-function PaperShaderCanvas({ recipe, frozen, onReady, onError }: { recipe: Recipe; frozen: boolean; onReady?: (canvas: HTMLCanvasElement) => void; onError?: (message: string | null) => void }) {
+function PaperShaderCanvas({
+  recipe,
+  frozen,
+  onReady,
+  onError,
+  keepRendering = false,
+}: {
+  recipe: Recipe;
+  frozen: boolean;
+  onReady?: (canvas: HTMLCanvasElement) => void;
+  onError?: (message: string | null) => void;
+  keepRendering?: boolean;
+}) {
   const ref = useRef<(HTMLElement & { canvasElement?: HTMLCanvasElement }) | null>(null);
   const pointer = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
   const [cursorOffset, setCursorOffset] = useState<PaperCursorOffset>({ x: 0, y: 0, rotation: 0 });
@@ -724,12 +752,23 @@ function PaperShaderCanvas({ recipe, frozen, onReady, onError }: { recipe: Recip
   };
 
   if (!Component) return null;
+  const paperFrozen = keepRendering ? false : frozen;
   return <div className="paper-shader-host" onPointerMove={move} onPointerLeave={() => { if (!cursorActive) return; pointer.current = { x: 0, y: 0, vx: 0, vy: 0 }; setCursorOffset({ x: 0, y: 0, rotation: 0 }); }} style={{ width: "100%", height: "100%", touchAction: "none" }}>
-    <Component ref={ref} className="paper-shader-canvas" width="100%" height="100%" {...paperProps(recipe, frozen, cursorActive ? cursorOffset : { x: 0, y: 0, rotation: 0 })} style={paperCanvasStyle(recipe)} />
+    <Component ref={ref} className="paper-shader-canvas" width="100%" height="100%" {...paperProps(recipe, paperFrozen, cursorActive ? cursorOffset : { x: 0, y: 0, rotation: 0 })} style={paperCanvasStyle(recipe)} />
   </div>;
 }
 
-function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; frozen: boolean; onError: (message: string | null) => void }) {
+function NativeShaderCanvas({
+  recipe,
+  frozen,
+  onError,
+  keepRendering = false,
+}: {
+  recipe: Recipe;
+  frozen: boolean;
+  onError: (message: string | null) => void;
+  keepRendering?: boolean;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   const pointer = useRef({ x: .5, y: .5, vx: 0, vy: 0 });
   const frame = useRef<number>(0);
@@ -784,11 +823,20 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
     if (!program) return;
     const attribute = gl.getAttribLocation(program, "position");
     const uniforms = Object.fromEntries(["u_resolution", "u_time", "u_pointer", "u_velocity", "u_colors", "u_style", "u_intensity", "u_zoom", "u_warp", "u_contrast", "u_speed", "u_drift", "u_animate", "u_reverse", "u_rotate", "u_seed", "u_smooth_blend", "u_grain", "u_offset", "u_cursor_on", "u_cursor_effect", "u_cursor_strength", "u_cursor_radius"].map((name) => [name, gl.getUniformLocation(program, name)])) as Record<string, WebGLUniformLocation | null>;
-    const shouldAnimate = !frozen && (recipe.animate || cursorActive);
+    let lastWidth = 0;
+    let lastHeight = 0;
+    const shouldAnimate = keepRendering || (!frozen && (recipe.animate || cursorActive));
     const render = (timestamp: number) => {
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-      const width = Math.max(1, Math.round(canvas.clientWidth * pixelRatio)); const height = Math.max(1, Math.round(canvas.clientHeight * pixelRatio));
-      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      const width = Math.max(1, Math.round(canvas.clientWidth * pixelRatio));
+      const height = Math.max(1, Math.round(canvas.clientHeight * pixelRatio));
+      const resized = canvas.width !== width || canvas.height !== height || lastWidth !== width || lastHeight !== height;
+      if (resized) {
+        canvas.width = width;
+        canvas.height = height;
+        lastWidth = width;
+        lastHeight = height;
+      }
       gl.viewport(0, 0, width, height); gl.useProgram(program);
       const set1 = (name: string, value: number) => gl.uniform1f(uniforms[name], value);
       gl.enableVertexAttribArray(attribute); gl.vertexAttribPointer(attribute, 2, gl.FLOAT, false, 0, 0);
@@ -800,10 +848,10 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
       set1("u_style", recipe.style); set1("u_intensity", recipe.intensity); set1("u_zoom", recipe.zoom); set1("u_warp", recipe.warp); set1("u_contrast", recipe.contrast); set1("u_speed", recipe.speed); set1("u_drift", recipe.drift); set1("u_animate", recipe.animate ? 1 : 0); set1("u_reverse", recipe.reverse ? 1 : 0); set1("u_rotate", recipe.rotate); set1("u_seed", recipe.seed); set1("u_smooth_blend", recipe.smoothBlend ? 1 : 0); set1("u_grain", recipe.grain); gl.uniform2f(uniforms.u_offset, recipe.offsetX, recipe.offsetY);
       set1("u_cursor_on", cursorActive ? 1 : 0); set1("u_cursor_effect", ["push", "repel", "swirl", "ripple", "spotlight"].indexOf(recipe.cursorEffect)); set1("u_cursor_strength", recipe.cursorStrength); set1("u_cursor_radius", recipe.cursorRadius);
       gl.drawArrays(gl.TRIANGLES, 0, 3); if (cursorActive) { pointer.current.vx *= .92; pointer.current.vy *= .92; }
-      if (shouldAnimate) frame.current = requestAnimationFrame(render);
+      if (shouldAnimate || resized) frame.current = requestAnimationFrame(render);
     };
     frame.current = requestAnimationFrame(render); return () => cancelAnimationFrame(frame.current);
-  }, [recipe, frozen, cursorActive, programVersion]);
+  }, [recipe, frozen, cursorActive, programVersion, keepRendering]);
 
   const move = (event: PointerEvent<HTMLCanvasElement>) => {
     if (!cursorActive) return;
@@ -818,11 +866,93 @@ function NativeShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; froze
   return <canvas ref={ref} onPointerMove={move} onPointerLeave={() => { if (!cursorActive) return; pointer.current.vx = pointer.current.vy = 0; }} className="shader-canvas" style={{ filter: recipe.blur ? `blur(${recipe.blur}px)` : undefined, transform: recipe.blur ? "scale(1.025)" : undefined }} aria-label="Live interactive shader preview" />;
 }
 
-export function ShaderCanvas({ recipe, frozen, onError }: { recipe: Recipe; frozen: boolean; onError: (message: string | null) => void }) {
+export function ShaderCanvas({
+  recipe,
+  frozen,
+  onError,
+  onChange,
+}: {
+  recipe: Recipe;
+  frozen: boolean;
+  onError: (message: string | null) => void;
+  onChange?: (update: Partial<Recipe>) => void;
+}) {
   if (recipe.kind === "ascii") return <AsciiCanvas recipe={recipe} frozen={frozen} />;
   if (recipe.kind === "media") return <MediaCanvas recipe={recipe} frozen={frozen} />;
+  if (recipe.kind === "3d") {
+    const isOpen = recipe.threeEnvironment === "open";
+    const shaderBackground = isOpen && recipe.threeOpenBackground === "shader";
+    const bgRecipe: Recipe = { ...recipe, kind: "shader", cursorEnabled: false };
+    return (
+      <div className="three-scene-stack">
+        {isOpen && (
+          <div className="three-scene-background" aria-hidden>
+            {shaderBackground ? (
+              isPaperStyle(recipe.style)
+                ? <PaperShaderCanvas recipe={bgRecipe} frozen={frozen} onError={onError} keepRendering />
+                : <NativeShaderCanvas recipe={bgRecipe} frozen={frozen} onError={onError} keepRendering />
+            ) : (
+              <div className="three-scene-solid-bg" style={{ background: recipe.palette[0] ?? "#060914" }} />
+            )}
+          </div>
+        )}
+        <ThreeCanvas
+          recipe={recipe}
+          frozen={frozen}
+          onChange={onChange}
+          transparentBackground={shaderBackground}
+        />
+      </div>
+    );
+  }
   if (isPaperStyle(recipe.style)) return <PaperShaderCanvas recipe={recipe} frozen={frozen} onError={onError} />;
   return <NativeShaderCanvas recipe={recipe} frozen={frozen} onError={onError} />;
+}
+
+export function SceneThumbnail({ material }: { material: ThreeMaterialId }) {
+  const [useFallback, setUseFallback] = useState(false);
+  if (useFallback) {
+    const label = material.split("-").map((part) => part[0]?.toUpperCase() ?? "").join("");
+    return (
+      <span className="shader-thumbnail scene-thumbnail" data-material={material} aria-hidden="true">
+        <i />
+        <b>{label.slice(0, 2)}</b>
+      </span>
+    );
+  }
+  return (
+    <img
+      className="shader-thumbnail scene-thumbnail"
+      data-material={material}
+      src={`/three-previews/${material}.png`}
+      alt=""
+      aria-hidden="true"
+      onError={() => setUseFallback(true)}
+    />
+  );
+}
+
+export function SceneObjectThumbnail({ object }: { object: ThreeObjectId }) {
+  const [useFallback, setUseFallback] = useState(false);
+  if (useFallback) {
+    const label = object.split("-").map((part) => part[0]?.toUpperCase() ?? "").join("");
+    return (
+      <span className="shader-thumbnail scene-thumbnail scene-object-thumbnail" data-object={object} aria-hidden="true">
+        <i />
+        <b>{label.slice(0, 2)}</b>
+      </span>
+    );
+  }
+  return (
+    <img
+      className="shader-thumbnail scene-thumbnail scene-object-thumbnail"
+      data-object={object}
+      src={`/three-object-previews/${object}.png`}
+      alt=""
+      aria-hidden="true"
+      onError={() => setUseFallback(true)}
+    />
+  );
 }
 
 export function ShaderThumbnail({ style }: { style: number }) {
@@ -1081,6 +1211,118 @@ export function StaticAsciiPreview({
       <canvas
         ref={captureRef}
         className="ascii-preview-canvas"
+        style={{ display: "block", width: "100%", height: "100%", background: "#050609" }}
+      />
+    </main>
+  );
+}
+
+export function StaticSceneMaterialPreview({
+  material,
+  mode = "preset",
+  seed,
+}: {
+  material: ThreeMaterialId;
+  mode?: InputMode;
+  seed?: number;
+}) {
+  const recipe = useMemo(() => buildThreeMaterialPreviewRecipe(material, mode, seed), [material, mode, seed]);
+  const captureRef = useRef<HTMLCanvasElement>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReady(false);
+    captureRef.current?.removeAttribute("data-preview-ready");
+
+    const capture = async () => {
+      try {
+        const exported = await exportThreePng(recipe, 640, 400);
+        if (cancelled) return;
+        const target = captureRef.current;
+        if (!target) return;
+        const ctx = target.getContext("2d");
+        if (!ctx) return;
+        target.width = 640;
+        target.height = 400;
+        ctx.drawImage(exported, 0, 0);
+        target.setAttribute("data-preview-ready", "");
+        setReady(true);
+      } catch (error) {
+        console.error(`Scene material preview export failed for ${material}`, error);
+        if (!cancelled) setReady(true);
+      }
+    };
+
+    void capture();
+    return () => { cancelled = true; };
+  }, [recipe, material]);
+
+  return (
+    <main
+      id="scene-preview"
+      data-preview-ready={ready ? "" : undefined}
+      style={{ width: 640, height: 400, overflow: "hidden", background: "#050609" }}
+    >
+      <canvas
+        ref={captureRef}
+        className="scene-preview-canvas"
+        style={{ display: "block", width: "100%", height: "100%", background: "#050609" }}
+      />
+    </main>
+  );
+}
+
+export function StaticSceneObjectPreview({
+  object,
+  mode = "preset",
+  seed,
+}: {
+  object: ThreeObjectId;
+  mode?: InputMode;
+  seed?: number;
+}) {
+  const recipe = useMemo(() => buildThreeObjectPreviewRecipe(object, mode, seed), [object, mode, seed]);
+  const captureRef = useRef<HTMLCanvasElement>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReady(false);
+    captureRef.current?.removeAttribute("data-preview-ready");
+
+    const capture = async () => {
+      try {
+        const exported = await exportThreePng(recipe, 640, 400);
+        if (cancelled) return;
+        const target = captureRef.current;
+        if (!target) return;
+        const ctx = target.getContext("2d");
+        if (!ctx) return;
+        target.width = 640;
+        target.height = 400;
+        ctx.drawImage(exported, 0, 0);
+        target.setAttribute("data-preview-ready", "");
+        setReady(true);
+      } catch (error) {
+        console.error(`Scene object preview export failed for ${object}`, error);
+        if (!cancelled) setReady(true);
+      }
+    };
+
+    void capture();
+    return () => { cancelled = true; };
+  }, [recipe, object]);
+
+  return (
+    <main
+      id="scene-object-preview"
+      data-preview-ready={ready ? "" : undefined}
+      style={{ width: 640, height: 400, overflow: "hidden", background: "#050609" }}
+    >
+      <canvas
+        ref={captureRef}
+        className="scene-preview-canvas"
         style={{ display: "block", width: "100%", height: "100%", background: "#050609" }}
       />
     </main>

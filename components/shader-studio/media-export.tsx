@@ -3,7 +3,7 @@ import { FlutedGlass, GemSmoke, HalftoneCmyk, HalftoneDots, Heatmap, ImageDither
 import type { ComponentType } from "react";
 import { drawPaperShaderToCanvas, type PaperExportSurface } from "./canvas";
 import { isPaperMediaFilter, mediaPaperProps } from "./media-catalog";
-import { queryMediaCanvas, waitForMediaCanvas } from "./media-canvas";
+import { MediaCanvas } from "./media-canvas";
 import { resolveMediaSource } from "./samples";
 import type { MediaFilterId, Recipe } from "./types";
 
@@ -127,6 +127,65 @@ export async function resolveMediaImageForExport(recipe: Recipe) {
   return stillFromVideo(resolved.url);
 }
 
+async function settleFrames(frames: number) {
+  for (let index = 0; index < frames; index += 1) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+}
+
+export type VfxMediaExportSurface = {
+  canvas: HTMLCanvasElement;
+  dispose: () => void;
+};
+
+async function mountVfxMediaExportHost(recipe: Recipe, width: number, height: number) {
+  const host = document.createElement("div");
+  host.setAttribute("data-media-export", "");
+  host.style.cssText = `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;overflow:hidden;pointer-events:none;opacity:0;z-index:-1;`;
+  document.body.appendChild(host);
+
+  let root: Root | null = createRoot(host);
+  root.render(<MediaCanvas recipe={recipe} frozen={false} />);
+
+  const dispose = () => {
+    try { root?.unmount(); } catch { /* ignore */ }
+    root = null;
+    host.remove();
+  };
+
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    const canvas = host.querySelector<HTMLCanvasElement>("[data-media-vfx-canvas]")
+      ?? host.querySelector<HTMLCanvasElement>("canvas");
+    if (canvas && canvas.width > 0 && canvas.height > 0) {
+      await settleFrames(45);
+      return { canvas, dispose };
+    }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  dispose();
+  throw new Error("Could not prepare a full-resolution media filter for export");
+}
+
+export async function createVfxMediaExportSurface(recipe: Recipe, width: number, height: number): Promise<VfxMediaExportSurface> {
+  return mountVfxMediaExportHost(recipe, width, height);
+}
+
+export async function captureVfxMediaExportCanvas(recipe: Recipe, width: number, height: number) {
+  const surface = await mountVfxMediaExportHost(recipe, width, height);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not create export canvas");
+    ctx.drawImage(surface.canvas, 0, 0, width, height);
+    return canvas;
+  } finally {
+    surface.dispose();
+  }
+}
+
 export async function exportMediaPng(recipe: Recipe, width: number, height: number) {
   if (isPaperMediaFilter(recipe.mediaFilter)) {
     const image = await resolveMediaImageForExport(recipe);
@@ -143,14 +202,7 @@ export async function exportMediaPng(recipe: Recipe, width: number, height: numb
     }
   }
 
-  const live = await waitForMediaCanvas();
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not create export canvas");
-  ctx.drawImage(live, 0, 0, width, height);
-  return canvas;
+  return captureVfxMediaExportCanvas(recipe, width, height);
 }
 
 export async function renderMediaFrameToCanvas(
@@ -160,6 +212,7 @@ export async function renderMediaFrameToCanvas(
   height: number,
   timeSec: number,
   paperSurface: PaperExportSurface | null,
+  vfxSurface: VfxMediaExportSurface | null = null,
 ) {
   const ctx = target instanceof HTMLCanvasElement ? target.getContext("2d") : target;
   if (!ctx) throw new Error("Could not create export canvas");
@@ -170,7 +223,13 @@ export async function renderMediaFrameToCanvas(
     return;
   }
 
-  const live = queryMediaCanvas() ?? await waitForMediaCanvas();
+  if (vfxSurface) {
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(vfxSurface.canvas, 0, 0, width, height);
+    return;
+  }
+
+  const frame = await captureVfxMediaExportCanvas(recipe, width, height);
   ctx.clearRect(0, 0, width, height);
-  ctx.drawImage(live, 0, 0, width, height);
+  ctx.drawImage(frame, 0, 0, width, height);
 }

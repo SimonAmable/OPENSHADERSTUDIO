@@ -83,6 +83,10 @@ export function renderNativeRecipeToCanvas(recipe: Recipe, width: number, height
 }
 
 export async function renderRecipeToPngBlob(recipe: Recipe, width: number, height: number, paperSource?: HTMLCanvasElement | null) {
+  if (recipe.kind === "3d" || recipe.kind === "media" || recipe.kind === "ascii") {
+    if (!paperSource) throw new Error("Shader preview is unavailable");
+    return scaleCanvasToPngBlob(paperSource, width, height);
+  }
   if (isPaperStyle(recipe.style)) {
     if (!paperSource) throw new Error("Shader preview is unavailable");
     return scaleCanvasToPngBlob(paperSource, width, height);

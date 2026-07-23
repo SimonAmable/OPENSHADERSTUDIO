@@ -1,10 +1,11 @@
 import { asciiStyleNames } from "./ascii-catalog";
 import { mediaFilterNames } from "./media-catalog";
+import { threeMaterialNames, threeObjectNames } from "./three-catalog";
 import { fragmentShader, styleNames } from "./canvas";
-import type { AsciiStyleId, MediaFilterId, Recipe } from "./types";
+import type { AsciiStyleId, MediaFilterId, Recipe, ThreeMaterialId, ThreeObjectId } from "./types";
 
 export type MagicPalette = { id: string; name: string; description: string; colors: string[] };
-export type MagicVisual = { id: string; kind: "shader" | "media" | "ascii"; label: string; recipe: Recipe };
+export type MagicVisual = { id: string; kind: "shader" | "media" | "ascii" | "3d"; label: string; recipe: Recipe };
 
 type Rgb = { r: number; g: number; b: number };
 type Hsl = { h: number; s: number; l: number };
@@ -125,9 +126,33 @@ export function makeMagicVisuals(base: Recipe, palette: MagicPalette, source: Re
   const shaderStyles = [7, 5, 8, 4];
   const mediaFilters: MediaFilterId[] = ["paper-water", "vfx-bloom"];
   const asciiStyles: AsciiStyleId[] = ["mosaic", "lines"];
+  const sceneLooks: Array<{ object: ThreeObjectId; material: ThreeMaterialId }> = [
+    { object: "torus-knot", material: "liquid-chrome" },
+    { object: "icosahedron", material: "aurora" },
+  ];
   return [
     ...shaderStyles.map((style, index) => ({ id: `shader-${style}`, kind: "shader" as const, label: styleNames[style] ?? "Shader", recipe: make(index, { kind: "shader", style, name: styleNames[style] ?? "Magic shader", intensity: .45 + pick() * .45, warp: .25 + pick() * .6, zoom: .8 + pick() * .7, contrast: .35 + pick() * .45 }) })),
     ...mediaFilters.map((mediaFilter, index) => ({ id: `media-${mediaFilter}`, kind: "media" as const, label: mediaFilterNames[mediaFilter], recipe: make(index + 4, { kind: "media", mediaFilter, name: mediaFilterNames[mediaFilter], intensity: .42 + pick() * .42, warp: .25 + pick() * .6, zoom: .8 + pick() * .7, contrast: .35 + pick() * .45 }) })),
     ...asciiStyles.map((asciiStyle, index) => ({ id: `ascii-${asciiStyle}`, kind: "ascii" as const, label: asciiStyleNames[asciiStyle], recipe: make(index + 6, { kind: "ascii", asciiStyle, name: asciiStyleNames[asciiStyle], asciiBlendMode: "screen", intensity: .35 + pick() * .4, zoom: .8 + pick() * .65, contrast: .35 + pick() * .45 }) })),
+    ...sceneLooks.map(({ object, material }, index) => ({
+      id: `3d-${material}-${object}`,
+      kind: "3d" as const,
+      label: `${threeMaterialNames[material]} · ${threeObjectNames[object]}`,
+      recipe: make(index + 8, {
+        kind: "3d",
+        threeObject: object,
+        threeMaterial: material,
+        threeModelUpload: null,
+        threeEnvironment: "nocturne",
+        threePedestal: true,
+        name: `${threeMaterialNames[material]} · ${threeObjectNames[object]}`,
+        intensity: .5 + pick() * .4,
+        warp: .25 + pick() * .55,
+        zoom: .85 + pick() * .5,
+        contrast: .4 + pick() * .4,
+        offsetX: -0.4 + pick() * 0.8,
+        offsetY: 0.1 + pick() * 0.4,
+      }),
+    })),
   ];
 }

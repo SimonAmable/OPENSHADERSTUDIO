@@ -22,7 +22,36 @@ export type TypeBlock = {
   color: string;
   plate: "black" | "white";
 };
-export type VisualKind = "shader" | "media" | "ascii";
+export type VisualKind = "shader" | "media" | "ascii" | "3d";
+
+export type ThreeObjectId =
+  | "sphere"
+  | "torus"
+  | "icosahedron"
+  | "box"
+  | "torus-knot"
+  | "capsule";
+
+export type ThreeMaterialId =
+  | "chrome"
+  | "matte"
+  | "glass"
+  | "toon"
+  | "iridescent"
+  | "liquid-chrome"
+  | "flow-field"
+  | "plasma"
+  | "caustics"
+  | "aurora"
+  | "smoke"
+  | "swirl"
+  | "silk"
+  | "neuro-noise"
+  | "waves";
+
+export type ThreeEnvironmentId = "open" | "nocturne" | "gallery" | "daylight";
+
+export type ThreeOpenBackgroundMode = "solid" | "shader";
 
 export type AsciiStyleId =
   | "characters"
@@ -144,6 +173,14 @@ export type Recipe = {
   asciiCharset: AsciiCharsetId;
   asciiAnimationStyle: AsciiAnimationStyle;
   mediaSource: MediaSource | null;
+  threeObject: ThreeObjectId;
+  threeMaterial: ThreeMaterialId;
+  /** GLB/GLTF data URL; when set, replaces the procedural preset mesh. */
+  threeModelUpload: string | null;
+  threeEnvironment: ThreeEnvironmentId;
+  threePedestal: boolean;
+  /** Open-scene backdrop: solid palette base colour or animated shader library style. */
+  threeOpenBackground: ThreeOpenBackgroundMode;
   palette: string[];
   intensity: number;
   zoom: number;

@@ -9,6 +9,7 @@ import {
 } from "../shader-studio/canvas";
 import { renderNativeRecipeToCanvas, canvasToPngBlob } from "../shader-studio/render-png";
 import { exportAsciiPng } from "../shader-studio/ascii-export";
+import { exportThreePng } from "../shader-studio/three-canvas";
 import { isPaperMediaFilter } from "../shader-studio/media-catalog";
 import { exportMediaPng, resolveMediaImageForExport } from "../shader-studio/media-export";
 import { MediaCanvas } from "../shader-studio/media-canvas";
@@ -165,6 +166,10 @@ async function captureAsciiCanvas(recipe: Recipe): Promise<HTMLCanvasElement> {
   return exportAsciiPng(recipe, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
 }
 
+async function captureSceneCanvas(recipe: Recipe): Promise<HTMLCanvasElement> {
+  return exportThreePng(recipe, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+}
+
 export async function captureThumbnailCanvas(recipe: Recipe): Promise<HTMLCanvasElement> {
   switch (recipe.kind) {
     case "shader":
@@ -173,6 +178,8 @@ export async function captureThumbnailCanvas(recipe: Recipe): Promise<HTMLCanvas
       return captureMediaCanvas(recipe);
     case "ascii":
       return captureAsciiCanvas(recipe);
+    case "3d":
+      return captureSceneCanvas(recipe);
     default: {
       const _exhaustive: never = recipe.kind;
       throw new Error(`Unhandled visual kind: ${_exhaustive}`);

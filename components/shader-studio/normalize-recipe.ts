@@ -1,4 +1,4 @@
-import type { MediaFilterId, MediaSource, Recipe, VisualKind } from "./types";
+import type { MediaFilterId, MediaSource, Recipe, ThreeMaterialId, ThreeObjectId, VisualKind } from "./types";
 import {
   DEFAULT_ASCII_ANIMATION,
   DEFAULT_ASCII_BLEND,
@@ -10,17 +10,36 @@ import {
   isAsciiStyleId,
 } from "./ascii-catalog";
 import { isMediaFilterId } from "./media-catalog";
+import { DEFAULT_THREE_ENVIRONMENT, DEFAULT_THREE_MATERIAL, DEFAULT_THREE_OBJECT, DEFAULT_THREE_OPEN_BACKGROUND, DEFAULT_THREE_PEDESTAL, isRoomEnvironment, isThreeEnvironmentId, isThreeMaterialId, isThreeObjectId } from "./three-catalog";
 import { defaultMediaSource } from "./samples";
 
 export const DEFAULT_MEDIA_FILTER: MediaFilterId = "paper-water";
 
+function normalizeKind(input: Partial<Recipe>): VisualKind {
+  if (input.kind === "media" || input.kind === "ascii" || input.kind === "3d" || input.kind === "shader") {
+    return input.kind;
+  }
+  return "shader";
+}
+
 export function normalizeRecipe(input: Partial<Recipe> & { id?: string; name?: string; style?: number; palette?: string[]; glsl?: string }, fallbackGlsl: string): Recipe {
-  const kind: VisualKind = input.kind === "media" || input.kind === "ascii" ? input.kind : "shader";
+  const kind = normalizeKind(input);
   const mediaFilter = isMediaFilterId(input.mediaFilter) ? input.mediaFilter : DEFAULT_MEDIA_FILTER;
   const asciiStyle = isAsciiStyleId(input.asciiStyle) ? input.asciiStyle : DEFAULT_ASCII_STYLE;
   const asciiBlendMode = isAsciiBlendMode(input.asciiBlendMode) ? input.asciiBlendMode : DEFAULT_ASCII_BLEND;
   const asciiCharset = isAsciiCharsetId(input.asciiCharset) ? input.asciiCharset : DEFAULT_ASCII_CHARSET;
   const asciiAnimationStyle = isAsciiAnimationStyle(input.asciiAnimationStyle) ? input.asciiAnimationStyle : DEFAULT_ASCII_ANIMATION;
+  const threeObject: ThreeObjectId = isThreeObjectId(input.threeObject) ? input.threeObject : DEFAULT_THREE_OBJECT;
+  const threeMaterial: ThreeMaterialId = isThreeMaterialId(input.threeMaterial) ? input.threeMaterial : DEFAULT_THREE_MATERIAL;
+  const threeEnvironment = isThreeEnvironmentId(input.threeEnvironment) ? input.threeEnvironment : DEFAULT_THREE_ENVIRONMENT;
+  const threeOpenBackground = input.threeOpenBackground === "shader" ? "shader" : DEFAULT_THREE_OPEN_BACKGROUND;
+  let threePedestal = typeof input.threePedestal === "boolean" ? input.threePedestal : DEFAULT_THREE_PEDESTAL;
+  if (!isRoomEnvironment(threeEnvironment)) {
+    threePedestal = false;
+  }
+  const threeModelUpload = typeof input.threeModelUpload === "string" && input.threeModelUpload.startsWith("data:")
+    ? input.threeModelUpload
+    : null;
   let mediaSource: MediaSource | null = null;
   if (input.mediaSource && typeof input.mediaSource === "object") {
     if (input.mediaSource.type === "sample" && typeof input.mediaSource.sampleId === "string") {
@@ -37,9 +56,17 @@ export function normalizeRecipe(input: Partial<Recipe> & { id?: string; name?: s
     mediaSource = defaultMediaSource(kind === "ascii" ? "ascii" : "media");
   }
 
+  const defaultName = kind === "ascii"
+    ? "ASCII look"
+    : kind === "media"
+    ? "Media look"
+    : kind === "3d"
+    ? "Scene look"
+    : "Shader";
+
   return {
     id: input.id ?? crypto.randomUUID(),
-    name: input.name ?? (kind === "ascii" ? "ASCII look" : kind === "media" ? "Media look" : "Shader"),
+    name: input.name ?? defaultName,
     kind,
     style: typeof input.style === "number" ? input.style : 0,
     mediaFilter,
@@ -48,6 +75,12 @@ export function normalizeRecipe(input: Partial<Recipe> & { id?: string; name?: s
     asciiCharset,
     asciiAnimationStyle,
     mediaSource,
+    threeObject,
+    threeMaterial,
+    threeModelUpload,
+    threeEnvironment,
+    threePedestal,
+    threeOpenBackground,
     palette: Array.isArray(input.palette) && input.palette.length >= 2 ? input.palette : ["#060914", "#273dff", "#00ddff", "#e8fbff"],
     intensity: typeof input.intensity === "number" ? input.intensity : .76,
     zoom: typeof input.zoom === "number" ? input.zoom : 1.02,

@@ -5,10 +5,10 @@ import { Check, CircleHelp, Droplets, ImageDown, Layers3, LoaderCircle, RefreshC
 import JSZip from "jszip";
 import { toast } from "sonner";
 import type { Recipe, VideoExportSettings } from "./types";
-import { ShaderCanvas, isPaperStyle } from "./canvas";
 import { exportPreviewAspect, shaderOutputSize } from "./export-utils";
 import { VARIATION_MODE_META, VariationMode, generateVariationRecipes } from "./randomize";
-import { canvasToPngBlob, renderNativeRecipeToCanvas, scaleCanvasToPngBlob, slugifyRecipeName } from "./render-png";
+import { canvasToPngBlob, slugifyRecipeName } from "./render-png";
+import { renderExportShaderCanvas } from "./export-render";
 
 const ALL_MODES: VariationMode[] = ["recolour", "remix", "restyle"];
 const COUNT_OPTIONS = [4, 6, 8, 12] as const;
@@ -27,15 +27,6 @@ type VariationBase =
   | { kind: "canvas" }
   | { kind: "variation"; id: string; recipe: Recipe; previewUrl: string; mode: VariationMode };
 
-type CaptureRequest = {
-  key: string;
-  recipe: Recipe;
-  width: number;
-  height: number;
-  resolve: (canvas: HTMLCanvasElement) => void;
-  reject: (error: Error) => void;
-};
-
 const modeIcon = {
   vary: RefreshCcw,
   inspire: CircleHelp,
@@ -50,63 +41,6 @@ function ExportAspectSelect({ value, onChange }: { value: VideoExportSettings["a
 
 function ExportResolutionSelect({ value, onChange }: { value: VideoExportSettings["height"]; onChange: (height: VideoExportSettings["height"]) => void }) {
   return <label>Resolution<select value={value} onChange={(event) => onChange(Number(event.target.value) as VideoExportSettings["height"])}><option value={480}>480p</option><option value={720}>720p</option><option value={1080}>1080p</option><option value={1440}>1440p</option></select></label>;
-}
-
-function VariationCaptureHost({ request }: { request: CaptureRequest | null }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const requestRef = useRef(request);
-  requestRef.current = request;
-
-  useEffect(() => {
-    if (!request) return;
-    let cancelled = false;
-    let attempts = 0;
-    const settle = () => {
-      if (cancelled || requestRef.current?.key !== request.key) return;
-      const canvas = rootRef.current?.querySelector("canvas");
-      if (canvas && canvas.width > 0 && canvas.height > 0) {
-        requestAnimationFrame(() => {
-          if (cancelled || requestRef.current?.key !== request.key) return;
-          const ready = rootRef.current?.querySelector("canvas");
-          if (ready && ready.width > 0) request.resolve(ready);
-          else request.reject(new Error("Shader preview is unavailable"));
-        });
-        return;
-      }
-      attempts += 1;
-      if (attempts > 90) {
-        request.reject(new Error("Timed out waiting for shader preview"));
-        return;
-      }
-      requestAnimationFrame(settle);
-    };
-    const frame = requestAnimationFrame(settle);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-    };
-  }, [request]);
-
-  if (!request) return null;
-  return (
-    <div
-      ref={rootRef}
-      className="variations-capture"
-      aria-hidden
-      style={{
-        position: "fixed",
-        left: -10000,
-        top: 0,
-        width: request.width,
-        height: request.height,
-        pointerEvents: "none",
-        opacity: 0,
-        overflow: "hidden",
-      }}
-    >
-      <ShaderCanvas key={request.key} recipe={request.recipe} frozen onError={() => undefined} />
-    </div>
-  );
 }
 
 export function VariationsExportPanel({
@@ -126,7 +60,6 @@ export function VariationsExportPanel({
   const [base, setBase] = useState<VariationBase>({ kind: "canvas" });
   const [busy, setBusy] = useState<"idle" | "generating" | "exporting">("idle");
   const [progress, setProgress] = useState(0);
-  const [captureRequest, setCaptureRequest] = useState<CaptureRequest | null>(null);
   const previewUrlsRef = useRef<string[]>([]);
 
   const size = shaderOutputSize(settings.aspect, settings.height);
@@ -141,31 +74,9 @@ export function VariationsExportPanel({
     previewUrlsRef.current = [];
   }, []);
 
-  const captureMounted = useCallback((nextRecipe: Recipe, width: number, height: number) => new Promise<HTMLCanvasElement>((resolve, reject) => {
-    const key = `${nextRecipe.id}-${width}x${height}-${Math.random().toString(36).slice(2, 8)}`;
-    setCaptureRequest({
-      key,
-      recipe: nextRecipe,
-      width,
-      height,
-      resolve: (canvas) => {
-        setCaptureRequest((current) => current?.key === key ? null : current);
-        resolve(canvas);
-      },
-      reject: (error) => {
-        setCaptureRequest((current) => current?.key === key ? null : current);
-        reject(error);
-      },
-    });
-  }), []);
-
   const renderVariationBlob = useCallback(async (variation: Recipe, width: number, height: number) => {
-    if (isPaperStyle(variation.style) || variation.kind === "media" || variation.kind === "ascii") {
-      const source = await captureMounted(variation, width, height);
-      return scaleCanvasToPngBlob(source, width, height);
-    }
-    return canvasToPngBlob(renderNativeRecipeToCanvas(variation, width, height));
-  }, [captureMounted]);
+    return canvasToPngBlob(await renderExportShaderCanvas(variation, width, height));
+  }, []);
 
   const toggleMode = (mode: VariationMode) => {
     setModes((current) => {
@@ -243,7 +154,6 @@ export function VariationsExportPanel({
     } finally {
       setBusy("idle");
       setProgress(0);
-      setCaptureRequest(null);
     }
   };
 
@@ -285,7 +195,6 @@ export function VariationsExportPanel({
     } finally {
       setBusy("idle");
       setProgress(0);
-      setCaptureRequest(null);
     }
   };
 
@@ -295,7 +204,6 @@ export function VariationsExportPanel({
 
   return (
     <div className="variations-export">
-      <VariationCaptureHost request={captureRequest} />
       <div className="variations-toolbar video-controls">
         <ExportAspectSelect value={settings.aspect} onChange={(aspect) => onSettingsChange({ aspect })} />
         <ExportResolutionSelect value={settings.height} onChange={(height) => onSettingsChange({ height })} />

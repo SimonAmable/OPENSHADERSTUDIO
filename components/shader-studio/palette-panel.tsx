@@ -373,7 +373,20 @@ export function PalettePanel({
   return (
     <div className="panel-content palette-panel">
       <div className="palette-panel-heading">
-        <div>{!embedded && <><h2>Colours</h2><p className="helper">Build a gradient with up to eight colour stops.</p></>}</div>
+        <div>
+          {!embedded && (
+            <>
+              <h2>Colours</h2>
+              <p className="helper">Build a gradient with up to eight colour stops.</p>
+            </>
+          )}
+          {recipe.kind === "3d" && recipe.threeEnvironment === "open" && recipe.threeOpenBackground === "solid" && (
+            <p className="helper">BASE is the open-scene background colour behind the object.</p>
+          )}
+          {recipe.kind === "3d" && recipe.threeEnvironment === "open" && recipe.threeOpenBackground === "shader" && (
+            <p className="helper">Palette colours drive the animated background shader.</p>
+          )}
+        </div>
         <span>{recipe.palette.length}/8</span>
       </div>
       <PaletteStopsList palette={recipe.palette} onChange={(palette) => onChange({ palette })} />

@@ -12,7 +12,7 @@ import {
   thumbnailZipName,
   type ThumbnailJob,
 } from "./types";
-import type { InputMode, ThumbnailKind } from "./types";
+import type { InputMode, ScenePreviewTarget, ThumbnailKind } from "./types";
 import { defaultMediaSource, resolveMediaSource, samplesForKind } from "../shader-studio/samples";
 import type { MediaSource, Recipe, SavedPalette } from "../shader-studio/types";
 import { defaultRecipe, palettes, SAVED_PALETTES_KEY, savedThemeKey } from "../shader-studio/canvas";
@@ -121,10 +121,12 @@ const KIND_TABS: { id: ThumbnailKind; label: string }[] = [
   { id: "shader", label: "Shader" },
   { id: "media", label: "Media" },
   { id: "ascii", label: "ASCII" },
+  { id: "3d", label: "3D" },
 ];
 
 export function ThumbnailLab() {
   const [kind, setKind] = useState<ThumbnailKind>("shader");
+  const [sceneTarget, setSceneTarget] = useState<ScenePreviewTarget>("material");
   const [inputMode, setInputMode] = useState<InputMode>("preset");
   const [seed, setSeed] = useState("");
   const [presetPalette, setPresetPalette] = useState<string[]>(() => [...defaultRecipe.palette]);
@@ -144,14 +146,15 @@ export function ThumbnailLab() {
 
   const buildOptions = useMemo(() => ({
     seed: seedValue,
+    sceneTarget: kind === "3d" ? sceneTarget : undefined,
     preset: inputMode === "preset"
       ? {
-          mediaSource: kind === "shader" ? null : presetMediaSource,
+          mediaSource: kind === "shader" || kind === "3d" ? null : presetMediaSource,
           palette: presetPalette,
           smoothBlend: presetSmoothBlend,
         }
       : undefined,
-  }), [seedValue, inputMode, presetMediaSource, presetPalette, presetSmoothBlend, kind]);
+  }), [seedValue, inputMode, presetMediaSource, presetPalette, presetSmoothBlend, kind, sceneTarget]);
 
   const paletteRecipe = useMemo<Recipe>(() => ({
     ...defaultRecipe,
@@ -177,7 +180,7 @@ export function ThumbnailLab() {
   useEffect(() => {
     resetGeneration();
     setJobOverrides({});
-  }, [kind, inputMode, seedValue, presetMediaSource, presetPalette, presetSmoothBlend, resetGeneration]);
+  }, [kind, inputMode, seedValue, presetMediaSource, presetPalette, presetSmoothBlend, sceneTarget, resetGeneration]);
 
   useEffect(() => {
     try {
@@ -215,14 +218,14 @@ export function ThumbnailLab() {
   };
 
   const rerollCard = useCallback((jobId: string) => {
-    const next = buildSingleThumbnailJob(kind, jobId, "random", { seed: Date.now() });
+    const next = buildSingleThumbnailJob(kind, jobId, "random", { seed: Date.now(), sceneTarget });
     if (!next) return;
     setJobOverrides((current) => ({ ...current, [jobId]: next }));
     setCardTokens((current) => ({
       ...current,
       [jobId]: (current[jobId] ?? generateAllToken) + 1,
     }));
-  }, [kind, generateAllToken]);
+  }, [kind, generateAllToken, sceneTarget]);
 
   const handlePaletteChange = (update: Partial<Recipe>) => {
     if (update.palette) setPresetPalette([...update.palette]);
@@ -283,7 +286,7 @@ export function ThumbnailLab() {
   const downloadZip = async () => {
     setZipBusy(true);
     try {
-      await downloadThumbnailJobs(jobs, thumbnailZipName(kind, inputMode));
+      await downloadThumbnailJobs(jobs, thumbnailZipName(kind, inputMode, sceneTarget));
     } finally {
       setZipBusy(false);
     }
@@ -296,7 +299,7 @@ export function ThumbnailLab() {
           <p className="thumbnail-lab-eyebrow">Internal tool</p>
           <h1>Thumbnail Lab</h1>
           <p className="thumbnail-lab-lead">
-            Generate shader, media, and ASCII thumbnail samples with preset or random source input.
+            Generate shader, media, ASCII, and 3D scene thumbnail samples with preset or random input.
           </p>
         </div>
         <Link className="thumbnail-lab-back" href="/">← Shader Studio</Link>
@@ -317,6 +320,30 @@ export function ThumbnailLab() {
             </button>
           ))}
         </div>
+
+        {kind === "3d" && (
+          <fieldset className="thumbnail-lab-toggle">
+            <legend>Scene target</legend>
+            <label>
+              <input
+                type="radio"
+                name="scene-target"
+                checked={sceneTarget === "material"}
+                onChange={() => setSceneTarget("material")}
+              />
+              Materials
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="scene-target"
+                checked={sceneTarget === "object"}
+                onChange={() => setSceneTarget("object")}
+              />
+              Objects
+            </label>
+          </fieldset>
+        )}
 
         <div className="thumbnail-lab-row">
           <fieldset className="thumbnail-lab-toggle">
@@ -440,12 +467,15 @@ export function ThumbnailLab() {
 
         <p className="thumbnail-lab-hint">
           {inputMode === "preset"
-            ? kind === "shader"
-              ? "Preset applies your palette across every shader style."
+            ? kind === "shader" || kind === "3d"
+              ? kind === "3d"
+                ? `Preset applies your palette across every ${sceneTarget === "material" ? "material" : "object"} thumbnail.`
+                : "Preset applies your palette across every shader style."
               : "Preset uses the same media source and palette for every thumbnail in this tab."
-            : "Random remixes shader surfaces or picks a random sample for media and ASCII."}
+            : "Random remixes shader surfaces, picks a random sample for media and ASCII, or randomizes 3D lighting and surface settings."}
           {" "}Thumbnails render only after you click Generate. Checked-in assets:{" "}
-          <code>npm run previews</code>, <code>npm run media-previews</code>, <code>npm run ascii-previews</code>.
+          <code>npm run previews</code>, <code>npm run media-previews</code>, <code>npm run ascii-previews</code>,{" "}
+          <code>npm run three-previews</code>, <code>npm run three-object-previews</code>.
         </p>
       </section>
 

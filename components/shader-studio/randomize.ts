@@ -2,6 +2,15 @@ import type { CursorEffect, MediaFilterId, MediaSource, Recipe, VisualKind } fro
 import { fragmentShader, palettes, presetSettings, styleNames } from "./canvas";
 import { asciiStyleNames, pickOtherAsciiStyle, randomAsciiAnimationStyle, randomAsciiStyle } from "./ascii-catalog";
 import { mediaFilterNames, pickOtherMediaFilter } from "./media-catalog";
+import {
+  pickOtherThreeMaterial,
+  pickOtherThreeObject,
+  randomThreeMaterial,
+  randomThreeObject,
+  threeMaterialNames,
+  threeObjectNames,
+  threeSceneLabel,
+} from "./three-catalog";
 import { defaultMediaSource, pickRandomSample } from "./samples";
 
 export type VariationMode = "vary" | "inspire" | "recolour" | "remix" | "restyle";
@@ -54,15 +63,20 @@ function keepMediaSource(recipe: Recipe, kind: Extract<VisualKind, "media" | "as
   return recipe.mediaSource ?? defaultMediaSource(kind);
 }
 
+function keepThreeModel(recipe: Recipe | undefined) {
+  return recipe?.threeModelUpload ?? null;
+}
+
 function randomMediaFilter(): MediaFilterId {
   return MEDIA_FILTER_IDS[Math.floor(Math.random() * MEDIA_FILTER_IDS.length)];
 }
 
 function randomVisualKind(): VisualKind {
   const roll = Math.random();
-  if (roll < 0.34) return "shader";
-  if (roll < 0.67) return "media";
-  return "ascii";
+  if (roll < 0.28) return "shader";
+  if (roll < 0.52) return "media";
+  if (roll < 0.76) return "ascii";
+  return "3d";
 }
 
 export function recolourRecipe(recipe: Recipe): Partial<Recipe> {
@@ -73,6 +87,12 @@ export function remixRecipe(recipe: Recipe): Partial<Recipe> {
   if (recipe.kind === "media" || recipe.kind === "ascii") {
     return {
       mediaSource: keepMediaSource(recipe, recipe.kind),
+      ...randomSurface(),
+    };
+  }
+  if (recipe.kind === "3d") {
+    return {
+      threeModelUpload: keepThreeModel(recipe),
       ...randomSurface(),
     };
   }
@@ -95,6 +115,17 @@ export function restyleRecipe(recipe: Recipe): Partial<Recipe> {
       name: mediaFilterNames[mediaFilter] ?? "Restyled media",
       mediaFilter,
       mediaSource: keepMediaSource(recipe, "media"),
+      palette: recipe.palette,
+    };
+  }
+  if (recipe.kind === "3d") {
+    const threeMaterial = pickOtherThreeMaterial(recipe.threeMaterial);
+    const threeObject = recipe.threeModelUpload ? recipe.threeObject : pickOtherThreeObject(recipe.threeObject);
+    return {
+      name: threeSceneLabel({ ...recipe, threeMaterial, threeObject }),
+      threeMaterial,
+      threeObject,
+      threeModelUpload: keepThreeModel(recipe),
       palette: recipe.palette,
     };
   }
@@ -127,6 +158,21 @@ export function inspireRecipe(recipe?: Recipe): Partial<Recipe> {
       name: mediaFilterNames[mediaFilter] ?? "Inspired media",
       mediaFilter,
       mediaSource: keepMediaSource(recipe ?? ({ mediaSource: null } as Recipe), "media"),
+      palette: palettes[Math.floor(Math.random() * palettes.length)],
+      ...randomSurface(),
+      ...randomMotionAndCursor(),
+      glsl: fragmentShader,
+    };
+  }
+  if (kind === "3d") {
+    const threeObject = randomThreeObject();
+    const threeMaterial = randomThreeMaterial();
+    return {
+      kind: "3d",
+      name: threeSceneLabel({ threeObject, threeMaterial, threeModelUpload: null, name: "Scene" }),
+      threeObject,
+      threeMaterial,
+      threeModelUpload: keepThreeModel(recipe),
       palette: palettes[Math.floor(Math.random() * palettes.length)],
       ...randomSurface(),
       ...randomMotionAndCursor(),
@@ -179,6 +225,21 @@ export function varyRecipe(recipe: Recipe): Partial<Recipe> {
       glsl: fragmentShader,
     };
   }
+  if (kind === "3d") {
+    const threeObject = randomThreeObject();
+    const threeMaterial = randomThreeMaterial();
+    return {
+      kind: "3d",
+      name: `${threeMaterialNames[threeMaterial]} · ${threeObjectNames[threeObject]}`,
+      threeObject,
+      threeMaterial,
+      threeModelUpload: null,
+      palette: palettes[Math.floor(Math.random() * palettes.length)],
+      ...randomSurface(),
+      ...randomMotionAndCursor(),
+      glsl: fragmentShader,
+    };
+  }
   return {
     kind: "shader",
     name: "Varied shader",
@@ -225,7 +286,7 @@ export function generateVariationRecipes(base: Recipe, modes: VariationMode[], c
 }
 
 export const VARIATION_MODE_META: Record<VariationMode, { label: string; hint: string }> = {
-  vary: { label: "Vary", hint: "New everything — may switch Shader, Media, or ASCII" },
+  vary: { label: "Vary", hint: "New everything — may switch Shader, Media, ASCII, or Scene" },
   inspire: { label: "Inspire", hint: "Brand-new look in the current mode" },
   recolour: { label: "Recolour", hint: "Keep style and settings; new colours" },
   remix: { label: "Remix", hint: "New surface; keep style, colours, motion, and cursor" },
